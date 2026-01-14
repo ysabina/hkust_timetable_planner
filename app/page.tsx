@@ -1,65 +1,78 @@
-import Image from "next/image";
+'use client';
+
+import CourseSearch from '../components/CourseSearch';
+import WeeklyCalendar from '../components/WeeklyCalendar';
+import ConflictAlert from '../components/ConflictAlert';
+import { useTimetable } from '../hooks/useTimetable';
+import { Calendar } from 'lucide-react';
 
 export default function Home() {
+  const { selectedSections, conflicts, addSection, removeSection, switchSection, clearAll } = useTimetable();
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-gradient-to-br from-[#1A1423] via-[#372549] to-[#774C60]">
+      {/* Header */}
+      <header className="bg-[#1A1423]/80 backdrop-blur-sm shadow-xl border-b border-[#372549]">
+        <div className="max-w-[1800px] mx-auto px-6 py-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-gradient-to-br from-[#B75D69] to-[#774C60] rounded-lg">
+                <Calendar className="w-7 h-7 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-[#EACDC2] to-[#B75D69] bg-clip-text text-transparent">
+                  HKUST Timetable Planner
+                </h1>
+                <p className="text-sm text-[#EACDC2]/70">Spring 2025-26</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <div className="px-4 py-2 bg-[#372549]/50 rounded-lg border border-[#774C60]">
+                <span className="text-[#EACDC2]/80 text-sm">
+                  <span className="font-bold text-[#B75D69]">{selectedSections.length}</span> courses selected
+                </span>
+              </div>
+              {selectedSections.length > 0 && (
+                <button
+                  onClick={clearAll}
+                  className="px-5 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#B75D69] to-[#774C60] hover:from-[#774C60] hover:to-[#B75D69] rounded-lg transition-all duration-300 shadow-lg hover:shadow-[#B75D69]/50"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+      </header>
+
+      {/* Conflict Alert */}
+      {conflicts.length > 0 && (
+        <ConflictAlert conflicts={conflicts} />
+      )}
+
+      {/* Main Content */}
+      <div className="max-w-[1800px] mx-auto px-6 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-[420px,1fr] gap-6">
+          {/* Left Sidebar - Course Search */}
+          <div className="space-y-4 h-[calc(100vh-200px)]">
+            <CourseSearch
+              onSelectSection={addSection}
+              selectedSections={selectedSections}
+              onSwitchSection={switchSection}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
+
+          {/* Right Side - Calendar */}
+          <div className="bg-[#1A1423]/60 backdrop-blur-sm rounded-2xl shadow-2xl border border-[#372549] p-6 h-[calc(100vh-200px)]">
+            <WeeklyCalendar
+              sections={selectedSections}
+              onRemoveSection={removeSection}
+              conflicts={conflicts}
+            />
+          </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
