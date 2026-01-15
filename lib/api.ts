@@ -44,10 +44,4 @@ export const courseAPI = {
     return course;
   },
 
-  // Check conflicts (no backend needed, handled by useTimetable hook)
-  checkConflicts: async (sections: any[]): Promise<{ hasConflicts: boolean; conflicts: Conflict[] }> => {
-    // This is already handled client-side in useTimetable.ts
-    // Keeping this for compatibility, but it won't be used
-    return { hasConflicts: false, conflicts: [] };
-  },
 };
