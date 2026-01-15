@@ -1,49 +1,53 @@
-import axios from 'axios';
 import type { Course, Conflict } from './types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
 export const courseAPI = {
-  // Get all departments
-  getDepartments: async (): Promise<string[]> => {
-    const { data } = await api.get('/api/departments');
-    return data;
-  },
-
-  // Get all courses
+  // Get all courses from static JSON
   getAllCourses: async (): Promise<Course[]> => {
-    const { data } = await api.get('/api/courses');
-    return data;
+    const response = await fetch('/courses_2530.json');
+    if (!response.ok) {
+      throw new Error('Failed to fetch courses');
+    }
+    return response.json();
   },
 
-  // Get courses by department
+  // Get all departments (derived from courses)
+  getDepartments: async (): Promise<string[]> => {
+    const courses = await courseAPI.getAllCourses();
+    const departments = [...new Set(courses.map(c => c.department))];
+    return departments.sort();
+  },
+
+  // Get courses by department (filter locally)
   getCoursesByDepartment: async (dept: string): Promise<Course[]> => {
-    const { data } = await api.get(`/api/courses/${dept}`);
-    return data;
+    const courses = await courseAPI.getAllCourses();
+    return courses.filter(c => c.department === dept);
   },
 
-  // Search courses
+  // Search courses (filter locally)
   searchCourses: async (query: string): Promise<Course[]> => {
-    const { data } = await api.get(`/api/search?q=${encodeURIComponent(query)}`);
-    return data;
+    const courses = await courseAPI.getAllCourses();
+    const lowerQuery = query.toLowerCase();
+    return courses.filter(c =>
+      c.courseCode.toLowerCase().includes(lowerQuery) ||
+      c.courseTitle.toLowerCase().includes(lowerQuery) ||
+      c.department.toLowerCase().includes(lowerQuery)
+    );
   },
 
-  // Get specific course
+  // Get specific course (find locally)
   getCourse: async (code: string): Promise<Course> => {
-    const { data } = await api.get(`/api/course/${code}`);
-    return data;
+    const courses = await courseAPI.getAllCourses();
+    const course = courses.find(c => c.courseCode === code);
+    if (!course) {
+      throw new Error(`Course ${code} not found`);
+    }
+    return course;
   },
 
-  // Check conflicts
+  // Check conflicts (no backend needed, handled by useTimetable hook)
   checkConflicts: async (sections: any[]): Promise<{ hasConflicts: boolean; conflicts: Conflict[] }> => {
-    const { data } = await api.post('/api/check-conflicts', { sections });
-    return data;
+    // This is already handled client-side in useTimetable.ts
+    // Keeping this for compatibility, but it won't be used
+    return { hasConflicts: false, conflicts: [] };
   },
 };

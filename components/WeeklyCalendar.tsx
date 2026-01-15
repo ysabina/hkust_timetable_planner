@@ -19,6 +19,25 @@ const DAY_ABBREV: { [key: string]: string } = {
 };
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 8);
 
+// Helper to get timeslots from section
+function getTimeslots(section: TimetableSection) {
+  // Use the new timeslots array if available (from updated scraper)
+  if (section.parsedTime?.timeslots && section.parsedTime.timeslots.length > 0) {
+    return section.parsedTime.timeslots;
+  }
+  
+  // Fallback: use the old parsedTime format for backward compatibility
+  if (section.parsedTime) {
+    return [{
+      days: section.parsedTime.days,
+      startTime: section.parsedTime.startTime,
+      endTime: section.parsedTime.endTime
+    }];
+  }
+  
+  return [];
+}
+
 export default function WeeklyCalendar({ sections, onRemoveSection, conflicts }: WeeklyCalendarProps) {
   const timeToPosition = (time: string): number => {
     // Convert "10:30AM" to minutes from 8:00AM
@@ -84,20 +103,24 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts }:
                 <div></div>
                 {DAYS.map((day) => (
                   <div key={day} className="relative pointer-events-auto" style={{ height: '840px' }}>
-                    {sections
-                      .filter(section => section.parsedTime?.days.includes(day))
-                      .map((section) => {
-                        if (!section.parsedTime) return null;
+                    {sections.map((section) => {
+                      // Get timeslots using the new helper function
+                      const timeslots = getTimeslots(section);
+                      
+                      // Render each timeslot that includes this day
+                      return timeslots.map((timeslot, idx) => {
+                        // Check if this timeslot includes the current day
+                        if (!timeslot.days.includes(day)) return null;
                         
-                        const startPos = timeToPosition(section.parsedTime.startTime);
-                        const endPos = timeToPosition(section.parsedTime.endTime);
+                        const startPos = timeToPosition(timeslot.startTime);
+                        const endPos = timeToPosition(timeslot.endTime);
                         const height = endPos - startPos;
                         const isConflicting = hasConflict(section);
                         const bgColor = isConflicting ? 'bg-red-600/80' : (section.color || 'bg-[#B75D69]');
 
                         return (
                           <div
-                            key={`${section.courseCode}-${section.sectionCode}-${day}`}
+                            key={`${section.courseCode}-${section.sectionCode}-${day}-${idx}`}
                             className={`absolute left-0 right-0 mx-1 ${bgColor} rounded-lg p-2 shadow-lg 
                                        border-2 ${isConflicting ? 'border-red-400 animate-pulse' : 'border-[#EACDC2]/30'} 
                                        overflow-hidden group hover:z-10 transition-all`}
@@ -119,22 +142,25 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts }:
                             </div>
                             <div className="text-white/90 text-xs truncate">
                               {section.sectionCode}
+                              {section.sectionType === 'LAB' && ' (Lab)'}
+                              {section.sectionType === 'TUTORIAL' && ' (Tut)'}
                             </div>
                             {height > 60 && (
                               <>
                                 <div className="text-white/80 text-xs mt-1 truncate">
-                                  {section.parsedTime.startTime}-{section.parsedTime.endTime}
+                                  {timeslot.startTime}-{timeslot.endTime}
                                 </div>
                                 {section.room && (
                                   <div className="text-white/70 text-xs truncate">
-                                    {section.room}
+                                    {section.room.split(';')[idx] || section.room.split(';')[0]}
                                   </div>
                                 )}
                               </>
                             )}
                           </div>
                         );
-                      })}
+                      }).filter(Boolean); // Remove null entries
+                    })}
                   </div>
                 ))}
               </div>
