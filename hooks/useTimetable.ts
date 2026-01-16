@@ -4,14 +4,18 @@ import { useState, useCallback } from 'react';
 import type { TimetableSection, Conflict } from '../lib/types';
 
 const COLORS = [
-  'bg-[#B75D69]',
-  'bg-[#774C60]',
-  'bg-purple-600',
-  'bg-blue-600',
-  'bg-teal-600',
-  'bg-green-600',
-  'bg-yellow-600',
-  'bg-orange-600',
+  'bg-[#F75590]', // Wild Strawberry (Pink)
+  'bg-[#FCE4D8]', // Powder Petal (Peach)
+  'bg-[#FBD87F]', // Jasmine (Yellow)
+  'bg-[#B5F8FE]', // Icy Aqua (Light Blue)
+  'bg-[#10FFCB]', // Tropical Mint (Mint)
+  'bg-[#E7B8FF]', // Lavender (Purple)
+  'bg-[#FFD4D4]', // Light Coral
+  'bg-[#C4A5E1]', // Soft Purple
+  'bg-blue-600',   // Deep Blue
+  'bg-teal-600',   // Teal
+  'bg-orange-600', // Orange
+  'bg-[#B75D69]', // Burgundy (kept as accent)
 ];
 
 export function useTimetable() {
@@ -80,16 +84,26 @@ export function useTimetable() {
       );
 
       if (existingSectionOfType) {
-        // Replace the existing section of this type
+        // Replace the existing section of this type (keep same color)
         return prev.map(s =>
           s.courseCode === section.courseCode && s.sectionType === section.sectionType
-            ? { ...section, color: s.color } // Keep the same color
+            ? { ...section, color: s.color }
             : s
         );
       } else {
-        // Add new section with a new color
-        const color = COLORS[prev.length % COLORS.length];
-        return [...prev, { ...section, color }];
+        // Check if ANY section of this course already exists (to reuse color)
+        const existingCourseSection = prev.find(s => s.courseCode === section.courseCode);
+        
+        if (existingCourseSection) {
+          // Reuse the same color for this course code
+          return [...prev, { ...section, color: existingCourseSection.color }];
+        } else {
+          // New course - assign color based on number of unique courses
+          const uniqueCourses = [...new Set(prev.map(s => s.courseCode))];
+          const colorIndex = uniqueCourses.length % COLORS.length;
+          const color = COLORS[colorIndex];
+          return [...prev, { ...section, color }];
+        }
       }
     });
   }, []);

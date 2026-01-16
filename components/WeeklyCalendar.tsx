@@ -21,12 +21,10 @@ const HOURS = Array.from({ length: 14 }, (_, i) => i + 8);
 
 // Helper to get timeslots from section
 function getTimeslots(section: TimetableSection) {
-  // Use the new timeslots array if available (from updated scraper)
   if (section.parsedTime?.timeslots && section.parsedTime.timeslots.length > 0) {
     return section.parsedTime.timeslots;
   }
   
-  // Fallback: use the old parsedTime format for backward compatibility
   if (section.parsedTime) {
     return [{
       days: section.parsedTime.days,
@@ -38,9 +36,17 @@ function getTimeslots(section: TimetableSection) {
   return [];
 }
 
+// Helper to determine if background is light or dark for text color
+function getTextColor(bgColor: string): string {
+  // Light backgrounds that need dark text
+  const lightColors = ['bg-[#FCE4D8]', 'bg-[#FBD87F]', 'bg-[#B5F8FE]', 'bg-[#10FFCB]', 
+                       'bg-[#A7C7E7]', 'bg-[#E7B8FF]', 'bg-[#FFD4D4]', 'bg-[#C4A5E1]', 'bg-[#FFB5C5]'];
+  
+  return lightColors.includes(bgColor) ? 'text-gray-800' : 'text-white';
+}
+
 export default function WeeklyCalendar({ sections, onRemoveSection, conflicts }: WeeklyCalendarProps) {
   const timeToPosition = (time: string): number => {
-    // Convert "10:30AM" to minutes from 8:00AM
     const match = time.match(/(\d+):(\d+)(AM|PM)/);
     if (!match) return 0;
     
@@ -104,26 +110,29 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts }:
                 {DAYS.map((day) => (
                   <div key={day} className="relative pointer-events-auto" style={{ height: '840px' }}>
                     {sections.map((section) => {
-                      // Get timeslots using the new helper function
                       const timeslots = getTimeslots(section);
                       
-                      // Render each timeslot that includes this day
                       return timeslots.map((timeslot, idx) => {
-                        // Check if this timeslot includes the current day
                         if (!timeslot.days.includes(day)) return null;
                         
                         const startPos = timeToPosition(timeslot.startTime);
                         const endPos = timeToPosition(timeslot.endTime);
                         const height = endPos - startPos;
                         const isConflicting = hasConflict(section);
-                        const bgColor = isConflicting ? 'bg-red-600/80' : (section.color || 'bg-[#B75D69]');
+                        
+                        // Use section.color if available, fallback to first color in palette
+                        const bgColor = isConflicting 
+                          ? 'bg-red-600/80' 
+                          : (section.color || 'bg-[#F75590]'); // Changed fallback to pink
+                        
+                        const textColor = isConflicting ? 'text-white' : getTextColor(bgColor);
 
                         return (
                           <div
                             key={`${section.courseCode}-${section.sectionCode}-${day}-${idx}`}
-                            className={`absolute left-0 right-0 mx-1 ${bgColor} rounded-lg p-2 shadow-lg 
-                                       border-2 ${isConflicting ? 'border-red-400 animate-pulse' : 'border-[#EACDC2]/30'} 
-                                       overflow-hidden group hover:z-10 transition-all`}
+                            className={`absolute left-0 right-0 mx-1 ${bgColor} ${textColor} rounded-lg p-2 shadow-lg 
+                                       border-2 ${isConflicting ? 'border-red-400 animate-pulse' : 'border-white/20'} 
+                                       overflow-hidden group hover:z-10 transition-all hover:shadow-xl`}
                             style={{
                               top: `${(startPos / 840) * 100}%`,
                               height: `${(height / 840) * 100}%`,
@@ -132,26 +141,26 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts }:
                           >
                             <button
                               onClick={() => onRemoveSection(section.courseCode)}
-                              className="absolute top-1 right-1 w-5 h-5 bg-[#1A1423]/60 rounded-full flex items-center 
-                                         justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#1A1423]/80"
+                              className="absolute top-1 right-1 w-5 h-5 bg-black/40 rounded-full flex items-center 
+                                         justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60"
                             >
-                              <X className="w-3 h-3 text-[#EACDC2]" />
+                              <X className="w-3 h-3 text-white" />
                             </button>
-                            <div className="text-white text-xs font-semibold truncate">
+                            <div className="font-semibold text-xs truncate">
                               {section.courseCode}
                             </div>
-                            <div className="text-white/90 text-xs truncate">
+                            <div className="opacity-90 text-xs truncate">
                               {section.sectionCode}
                               {section.sectionType === 'LAB' && ' (Lab)'}
                               {section.sectionType === 'TUTORIAL' && ' (Tut)'}
                             </div>
                             {height > 60 && (
                               <>
-                                <div className="text-white/80 text-xs mt-1 truncate">
+                                <div className="opacity-80 text-xs mt-1 truncate">
                                   {timeslot.startTime}-{timeslot.endTime}
                                 </div>
                                 {section.room && (
-                                  <div className="text-white/70 text-xs truncate">
+                                  <div className="opacity-70 text-xs truncate">
                                     {section.room.split(';')[idx] || section.room.split(';')[0]}
                                   </div>
                                 )}
@@ -159,7 +168,7 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts }:
                             )}
                           </div>
                         );
-                      }).filter(Boolean); // Remove null entries
+                      }).filter(Boolean);
                     })}
                   </div>
                 ))}

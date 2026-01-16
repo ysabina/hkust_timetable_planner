@@ -2,16 +2,15 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Search, Plus, ChevronDown, ChevronRight, Loader2, BookOpen, AlertTriangle } from 'lucide-react';
-import type { Course, TimetableSection } from '../lib/types';
+import type { Course, TimetableSection, Section } from '../lib/types';
 import { courseAPI } from '../lib/api';
 
 interface CourseSearchProps {
   onSelectSection: (section: TimetableSection) => void;
   selectedSections: TimetableSection[];
-  onSwitchSection: (courseCode: string, newSection: TimetableSection) => void;
 }
 
-export default function CourseSearch({ onSelectSection, selectedSections, onSwitchSection }: CourseSearchProps) {
+export default function CourseSearch({ onSelectSection, selectedSections }: CourseSearchProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
@@ -105,7 +104,7 @@ export default function CourseSearch({ onSelectSection, selectedSections, onSwit
     );
   };
 
-  const getMissingComponents = (course: Course, selectedLecture: any) => {
+  const getMissingComponents = (course: Course, selectedLecture: Section) => {
     const missing: string[] = [];
     
     // Check if there are labs matching this lecture
@@ -136,7 +135,7 @@ export default function CourseSearch({ onSelectSection, selectedSections, onSwit
     return missing;
   };
 
-  const handleAddSection = (course: Course, section: any) => {
+  const handleAddSection = (course: Course, section: Section) => {
     const timetableSection: TimetableSection = {
       ...section,
       courseCode: course.courseCode,
