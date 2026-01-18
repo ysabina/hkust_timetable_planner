@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, Plus, ChevronDown, ChevronRight, Loader2, BookOpen, AlertTriangle } from 'lucide-react';
 import type { Course, TimetableSection, Section } from '../lib/types';
 import { courseAPI } from '../lib/api';
@@ -8,14 +8,78 @@ import { courseAPI } from '../lib/api';
 interface CourseSearchProps {
   onSelectSection: (section: TimetableSection) => void;
   selectedSections: TimetableSection[];
+  focusedCourse?: { code: string; timestamp: number } | null;
 }
 
-export default function CourseSearch({ onSelectSection, selectedSections }: CourseSearchProps) {
+export default function CourseSearch({ onSelectSection, selectedSections,focusedCourse }: CourseSearchProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
   const [expandedDept, setExpandedDept] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+
+  // REFS - one for each course card
+  const courseRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+// Auto-scroll when focusedCourse changes
+useEffect(() => {
+  if (!focusedCourse || !courseRefs.current[focusedCourse.code]) return;
+
+  const element = courseRefs.current[focusedCourse.code];
+  if (!element) return;
+
+  // EXPAND THE COURSE to show sections
+  setExpandedCourse(focusedCourse.code);
+
+  // ALSO EXPAND THE DEPARTMENT
+  const courseDept = allCourses.find(c => c.courseCode === focusedCourse.code)?.department;
+  if (courseDept) {
+    setExpandedDept(prev => new Set([...prev, courseDept]));
+  }
+
+  // Scroll the element into view smoothly (small delay to let expansion happen)
+  const scrollTimeout = setTimeout(() => {
+    if (element) {
+      element.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
+  }, 100);
+
+  // Add a temporary highlight animation
+  element.classList.add('ring-2', 'ring-[#B75D69]', 'ring-offset-2', 'ring-offset-[#1A1423]');
+
+  // ✅ Clear any existing highlight timeout to prevent overlaps
+  if (highlightTimeoutRef.current) {
+    clearTimeout(highlightTimeoutRef.current);
+  }
+
+  // Remove highlight after 2 seconds and store timeout reference
+  highlightTimeoutRef.current = setTimeout(() => {
+    if (element) {
+      element.classList.remove('ring-2', 'ring-[#B75D69]', 'ring-offset-2', 'ring-offset-[#1A1423]');
+    }
+    highlightTimeoutRef.current = null;
+  }, 2000);
+
+  // ✅ CLEANUP: Clear timeouts if effect runs again or component unmounts
+  return () => {
+    clearTimeout(scrollTimeout);
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = null;
+    }
+    // Remove highlight classes immediately on cleanup
+    if (element) {
+      element.classList.remove('ring-2', 'ring-[#B75D69]', 'ring-offset-2', 'ring-offset-[#1A1423]');
+    }
+  };
+}, [focusedCourse]);
+
+
+
 
   useEffect(() => {
     const fetchAllCourses = async () => {
@@ -146,11 +210,11 @@ export default function CourseSearch({ onSelectSection, selectedSections }: Cour
   };
 
   useEffect(() => {
-    if (searchQuery.trim() && Object.keys(coursesByDepartment).length > 0) {
-      const firstDept = Object.keys(coursesByDepartment)[0];
-      setExpandedDept(new Set([firstDept]));
-    }
-  }, [searchQuery, coursesByDepartment]);
+  if (searchQuery.trim() && Object.keys(coursesByDepartment).length > 0 && expandedDept.size === 0) {
+    const firstDept = Object.keys(coursesByDepartment)[0];
+    setExpandedDept(new Set([firstDept]));
+  }
+}, [searchQuery, coursesByDepartment, expandedDept.size]);
 
   return (
     <div className="bg-gradient-to-br from-[#372549] to-[#774C60] rounded-lg shadow-xl p-6 h-full flex flex-col">
@@ -217,7 +281,9 @@ export default function CourseSearch({ onSelectSection, selectedSections }: Cour
                     const lectureSections = course.sections.filter(s => s.sectionType === 'LECTURE');
                     
                     return (
-                      <div key={course.courseCode} className="bg-[#372549]/40 rounded-lg overflow-hidden border border-[#B75D69]/20">
+                      <div key={course.courseCode}
+                      ref={(el) => { courseRefs.current[course.courseCode] = el; }}
+                        className="bg-[#372549]/40 rounded-lg overflow-hidden border border-[#B75D69]/20">
                         <button
                           onClick={() => toggleCourse(course.courseCode)}
                           className="w-full px-3 py-2.5 flex items-start gap-2 hover:bg-[#B75D69]/10 transition-colors text-left"

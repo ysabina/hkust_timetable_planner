@@ -1,5 +1,5 @@
 'use client';
-
+import { useState } from 'react';
 import { X } from 'lucide-react';
 import type { TimetableSection, Conflict } from '../lib/types';
 
@@ -7,6 +7,7 @@ interface WeeklyCalendarProps {
   sections: TimetableSection[];
   onRemoveSection: (courseCode: string) => void;
   conflicts: Conflict[];
+  onCourseClick?: (courseCode: string) => void;
 }
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -45,8 +46,9 @@ function getTextColor(bgColor: string): string {
   return lightColors.includes(bgColor) ? 'text-gray-800' : 'text-white';
 }
 
-export default function WeeklyCalendar({ sections, onRemoveSection, conflicts }: WeeklyCalendarProps) {
-  const timeToPosition = (time: string): number => {
+export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, onCourseClick }: WeeklyCalendarProps) {
+    const [expandedBlock, setExpandedBlock] = useState<string | null>(null);
+    const timeToPosition = (time: string): number => {
     const match = time.match(/(\d+):(\d+)(AM|PM)/);
     if (!match) return 0;
     
@@ -66,6 +68,17 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts }:
       (c.course2 === section.courseCode && c.section2 === section.sectionCode)
     );
   };
+  const handleCourseClick = (courseCode: string, sectionCode: string, day: string) => {
+  const blockId = `${courseCode}-${sectionCode}-${day}`;
+  
+  // Toggle expansion
+  setExpandedBlock(prev => prev === blockId ? null : blockId);
+  
+  // Notify parent component (page.tsx) to update CourseSearch
+  onCourseClick?.(courseCode);
+};
+
+
 
   return (
     <div className="h-full overflow-auto">
@@ -127,46 +140,82 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts }:
                         
                         const textColor = isConflicting ? 'text-white' : getTextColor(bgColor);
 
+
+                        const blockId = `${section.courseCode}-${section.sectionCode}-${day}`;
+                        const isExpanded = expandedBlock === blockId;
+
                         return (
-                          <div
-                            key={`${section.courseCode}-${section.sectionCode}-${day}-${idx}`}
+                        <div
+                            key={blockId}
+                            onClick={() => handleCourseClick(section.courseCode, section.sectionCode, day)}
                             className={`absolute left-0 right-0 mx-1 ${bgColor} ${textColor} rounded-lg p-2 shadow-lg 
-                                       border-2 ${isConflicting ? 'border-red-400 animate-pulse' : 'border-white/20'} 
-                                       overflow-hidden group hover:z-10 transition-all hover:shadow-xl`}
+                                    border-2 ${isConflicting ? 'border-red-400 animate-pulse' : 'border-white/20'} 
+                                    overflow-hidden group cursor-pointer
+                                    transition-all duration-300 ease-out
+                                    ${isExpanded ? 'z-50 scale-105 shadow-2xl ring-2 ring-[#EACDC2]' : 'hover:z-10 hover:shadow-xl hover:scale-102'}`}
                             style={{
-                              top: `${(startPos / 840) * 100}%`,
-                              height: `${(height / 840) * 100}%`,
-                              minHeight: '40px',
+                            top: `${(startPos / 840) * 100}%`,
+                            height: `${(height / 840) * 100}%`,
+                            minHeight: isExpanded ? '120px' : '40px',
                             }}
-                          >
+                        >
                             <button
-                              onClick={() => onRemoveSection(section.courseCode)}
-                              className="absolute top-1 right-1 w-5 h-5 bg-black/40 rounded-full flex items-center 
-                                         justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60"
+                            onClick={(e) => {
+                                e.stopPropagation(); // ✅ CHANGED: Stop click from bubbling to parent
+                                onRemoveSection(section.courseCode);
+                            }}
+                            className="absolute top-1 right-1 w-5 h-5 bg-black/40 rounded-full flex items-center 
+                                        justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60 z-10"
                             >
-                              <X className="w-3 h-3 text-white" />
+                            <X className="w-3 h-3 text-white" />
                             </button>
+
+                            {/* Always visible info */}
                             <div className="font-semibold text-xs truncate">
-                              {section.courseCode}
+                            {section.courseCode}
                             </div>
                             <div className="opacity-90 text-xs truncate">
-                              {section.sectionCode}
-                              {section.sectionType === 'LAB' && ' (Lab)'}
-                              {section.sectionType === 'TUTORIAL' && ' (Tut)'}
+                            {section.sectionCode}
+                            {section.sectionType === 'LAB' && ' (Lab)'}
+                            {section.sectionType === 'TUTORIAL' && ' (Tut)'}
                             </div>
-                            {height > 60 && (
-                              <>
+
+                            {/* Show time/room if block is tall enough OR expanded */}
+                            {(height > 60 || isExpanded) && (
+                            <>
                                 <div className="opacity-80 text-xs mt-1 truncate">
-                                  {timeslot.startTime}-{timeslot.endTime}
+                                {timeslot.startTime}-{timeslot.endTime}
                                 </div>
                                 {section.room && (
-                                  <div className="opacity-70 text-xs truncate">
+                                <div className="opacity-70 text-xs truncate">
                                     {section.room.split(';')[idx] || section.room.split(';')[0]}
-                                  </div>
+                                </div>
                                 )}
-                              </>
+                            </>
                             )}
-                          </div>
+
+                            {/* Extra details when expanded */}
+                            {isExpanded && (
+                            <div className="mt-2 pt-2 border-t border-white/20 space-y-1 animate-fadeIn">
+                                {section.instructor && (
+                                <div className="text-xs opacity-90">
+                                    👤 {section.instructor}
+                                </div>
+                                )}
+                                {section.quota && (
+                                <div className="text-xs opacity-90">
+                                    📊 {section.enrolled}/{section.quota} enrolled
+                                    {section.wait && section.wait !== '0' && ` • ${section.wait} waiting`}
+                                </div>
+                                )}
+                                {section.remarks && (
+                                <div className="text-xs opacity-80 italic">
+                                    💡 {section.remarks}
+                                </div>
+                                )}
+                            </div>
+                            )}
+                        </div>
                         );
                       }).filter(Boolean);
                     })}

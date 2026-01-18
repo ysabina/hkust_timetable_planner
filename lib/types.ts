@@ -47,3 +47,11 @@ export interface Conflict {
   section2: string;
   reason: string;
 }
+
+// For tracking expanded course blocks
+export interface ExpandedCourseBlock {
+  courseCode: string;
+  sectionCode: string;
+  day: string;
+}
+

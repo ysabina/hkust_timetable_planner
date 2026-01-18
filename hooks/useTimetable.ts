@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { TimetableSection, Conflict } from '../lib/types';
 
 const COLORS = [
@@ -12,14 +12,17 @@ const COLORS = [
   'bg-[#E7B8FF]', // Lavender (Purple)
   'bg-[#FFD4D4]', // Light Coral
   'bg-[#C4A5E1]', // Soft Purple
-  'bg-blue-600',   // Deep Blue
-  'bg-teal-600',   // Teal
+  'bg-blue-600', // Deep Blue
+  'bg-teal-600', // Teal
   'bg-orange-600', // Orange
   'bg-[#B75D69]', // Burgundy (kept as accent)
 ];
 
 export function useTimetable() {
   const [selectedSections, setSelectedSections] = useState<TimetableSection[]>([]);
+  
+  // ✅ USE REF to track color assignments permanently
+  const courseColorsRef = useRef<Map<string, string>>(new Map());
 
   const checkTimeConflicts = useCallback((sections: TimetableSection[]): Conflict[] => {
     const conflicts: Conflict[] = [];
@@ -90,26 +93,35 @@ export function useTimetable() {
             ? { ...section, color: s.color }
             : s
         );
-      } else {
-        // Check if ANY section of this course already exists (to reuse color)
-        const existingCourseSection = prev.find(s => s.courseCode === section.courseCode);
-        
-        if (existingCourseSection) {
-          // Reuse the same color for this course code
-          return [...prev, { ...section, color: existingCourseSection.color }];
-        } else {
-          // New course - assign color based on number of unique courses
-          const uniqueCourses = [...new Set(prev.map(s => s.courseCode))];
-          const colorIndex = uniqueCourses.length % COLORS.length;
-          const color = COLORS[colorIndex];
-          return [...prev, { ...section, color }];
-        }
       }
+
+      // ✅ Check if this course already has a color assigned in the ref
+      let assignedColor = courseColorsRef.current.get(section.courseCode);
+
+      if (assignedColor) {
+        // Reuse existing color from ref
+        console.log(`♻️ REUSING COLOR: ${section.courseCode} → ${assignedColor}`);
+        return [...prev, { ...section, color: assignedColor }];
+      }
+
+      // ✅ NEW COURSE - assign next color based on ref map size (not state!)
+      const colorIndex = courseColorsRef.current.size % COLORS.length;
+      assignedColor = COLORS[colorIndex];
+      
+      // ✅ SAVE to ref so it persists even after removal
+      courseColorsRef.current.set(section.courseCode, assignedColor);
+      
+      console.log(`🎨 NEW COURSE: ${section.courseCode} → Color ${colorIndex}: ${assignedColor}`);
+      console.log(`📊 Total unique courses tracked: ${courseColorsRef.current.size}`);
+      
+      return [...prev, { ...section, color: assignedColor }];
     });
   }, []);
 
   const removeSection = useCallback((courseCode: string) => {
     setSelectedSections(prev => prev.filter(s => s.courseCode !== courseCode));
+    // ✅ DON'T delete from courseColorsRef - keep the color reserved!
+    console.log(`🗑️ REMOVED: ${courseCode} (color preserved in memory)`);
   }, []);
 
   const switchSection = useCallback((courseCode: string, newSection: TimetableSection) => {
@@ -124,6 +136,8 @@ export function useTimetable() {
 
   const clearAll = useCallback(() => {
     setSelectedSections([]);
+    courseColorsRef.current.clear(); // ✅ Clear colors when clearing all
+    console.log('🧹 CLEARED ALL - color assignments reset');
   }, []);
 
   const conflicts = checkTimeConflicts(selectedSections);
