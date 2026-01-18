@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { TimetableSection, Conflict } from '../lib/types';
 
 const COLORS = [
@@ -17,12 +17,63 @@ const COLORS = [
   'bg-orange-600', // Orange
   'bg-[#B75D69]', // Burgundy (kept as accent)
 ];
+const STORAGE_VERSION = '1.0';
 
 export function useTimetable() {
   const [selectedSections, setSelectedSections] = useState<TimetableSection[]>([]);
   
   // ✅ USE REF to track color assignments permanently
   const courseColorsRef = useRef<Map<string, string>>(new Map());
+
+  // Load data from localStorage on mount
+  useEffect(() => {
+    try {
+        const version = localStorage.getItem('timetable-version');
+    
+        // Clear if version mismatch
+        if (version !== STORAGE_VERSION) {
+        localStorage.clear();
+        localStorage.setItem('timetable-version', STORAGE_VERSION);
+        return;
+        }
+
+        const savedSections = localStorage.getItem('timetable-sections');
+        const savedColors = localStorage.getItem('timetable-colors');
+      
+
+
+      if (savedSections) {
+        const sections = JSON.parse(savedSections);
+        setSelectedSections(sections);
+        console.log('📂 LOADED sections from localStorage:', sections.length);
+      }
+
+      if (savedColors) {
+        const colorsArray = JSON.parse(savedColors);
+        courseColorsRef.current = new Map(colorsArray);
+        console.log('🎨 LOADED color assignments from localStorage');
+
+      }
+    } catch (error) {
+      console.error('Error loading from localStorage:', error);
+    }
+  }, []); // Empty array = run only once on mount
+
+  // Save to localStorage whenever data changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('timetable-sections', JSON.stringify(selectedSections));
+      
+      // Convert Map to array for storage
+      const colorsArray = Array.from(courseColorsRef.current.entries());
+      localStorage.setItem('timetable-colors', JSON.stringify(colorsArray));
+      
+      console.log('💾 SAVED to localStorage');
+    } catch (error) {
+      console.error('Error saving to localStorage:', error);
+    }
+  }, [selectedSections]); // Run whenever selectedSections changes
+  
 
   const checkTimeConflicts = useCallback((sections: TimetableSection[]): Conflict[] => {
     const conflicts: Conflict[] = [];
@@ -136,7 +187,9 @@ export function useTimetable() {
 
   const clearAll = useCallback(() => {
     setSelectedSections([]);
-    courseColorsRef.current.clear(); // ✅ Clear colors when clearing all
+    courseColorsRef.current.clear(); 
+    localStorage.removeItem('timetable-sections');
+    localStorage.removeItem('timetable-colors');
     console.log('🧹 CLEARED ALL - color assignments reset');
   }, []);
 
