@@ -24,59 +24,60 @@ export default function CourseSearch({ onSelectSection, selectedSections,focused
 
 // Auto-scroll when focusedCourse changes
 useEffect(() => {
-  if (!focusedCourse || !courseRefs.current[focusedCourse.code]) return;
+  if (!focusedCourse) return;
 
-  const element = courseRefs.current[focusedCourse.code];
-  if (!element) return;
-
-  // EXPAND THE COURSE to show sections
-  setExpandedCourse(focusedCourse.code);
-
-  // ALSO EXPAND THE DEPARTMENT
+  // ✅ STEP 1: Find the department and expand it
   const courseDept = allCourses.find(c => c.courseCode === focusedCourse.code)?.department;
+  
   if (courseDept) {
+    // Expand the department first
     setExpandedDept(prev => new Set([...prev, courseDept]));
   }
 
-  // Scroll the element into view smoothly (small delay to let expansion happen)
-  const scrollTimeout = setTimeout(() => {
-    if (element) {
-      element.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-      });
+  // ✅ STEP 2: Expand the course
+  setExpandedCourse(focusedCourse.code);
+
+  // ✅ STEP 3: Wait for React to render, THEN scroll
+  setTimeout(() => {
+    const element = courseRefs.current[focusedCourse.code];
+    
+    if (!element) {
+      console.warn(`⚠️ Element not found for ${focusedCourse.code} - might still be rendering`);
+      return;
     }
-  }, 100);
 
-  // Add a temporary highlight animation
-  element.classList.add('ring-2', 'ring-[#B75D69]', 'ring-offset-2', 'ring-offset-[#1A1423]');
+    // Scroll the element into view
+    element.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    });
 
-  // ✅ Clear any existing highlight timeout to prevent overlaps
-  if (highlightTimeoutRef.current) {
-    clearTimeout(highlightTimeoutRef.current);
-  }
+    // Add temporary highlight animation
+    element.classList.add('ring-2', 'ring-[#B75D69]', 'ring-offset-2', 'ring-offset-[#1A1423]');
 
-  // Remove highlight after 2 seconds and store timeout reference
-  highlightTimeoutRef.current = setTimeout(() => {
-    if (element) {
-      element.classList.remove('ring-2', 'ring-[#B75D69]', 'ring-offset-2', 'ring-offset-[#1A1423]');
+    // Clear any existing highlight timeout
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
     }
-    highlightTimeoutRef.current = null;
-  }, 2000);
 
-  // ✅ CLEANUP: Clear timeouts if effect runs again or component unmounts
+    // Remove highlight after 2 seconds
+    highlightTimeoutRef.current = setTimeout(() => {
+      if (element) {
+        element.classList.remove('ring-2', 'ring-[#B75D69]', 'ring-offset-2', 'ring-offset-[#1A1423]');
+      }
+      highlightTimeoutRef.current = null;
+    }, 2000);
+
+  }, 300); // ✅ INCREASED from 100ms to 300ms to allow React to render
+
+  // Cleanup
   return () => {
-    clearTimeout(scrollTimeout);
     if (highlightTimeoutRef.current) {
       clearTimeout(highlightTimeoutRef.current);
       highlightTimeoutRef.current = null;
     }
-    // Remove highlight classes immediately on cleanup
-    if (element) {
-      element.classList.remove('ring-2', 'ring-[#B75D69]', 'ring-offset-2', 'ring-offset-[#1A1423]');
-    }
   };
-}, [focusedCourse]);
+}, [focusedCourse, allCourses]); 
 
 
 
