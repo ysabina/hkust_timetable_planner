@@ -17,35 +17,46 @@ const COLORS = [
 
 export class ScheduleGenerator {
   
-  // ✅ NEW: Helper function to normalize section codes for matching
+  // ✅ Helper function to normalize section codes for matching
   private normalizeSectionCode(code: string | null | undefined): string {
     if (!code) return '';
-    // Remove spaces, parentheses, and convert to uppercase
-    // "L1 (2213)" → "L12213"
-    // "L1" → "L1"
     return code.toUpperCase().replace(/[\s()]/g, '');
   }
 
-  // ✅ NEW: Check if two sections are linked
+  // ✅ Check if two sections are linked - with detailed logging
   private isSectionLinked(linkedSection: string | null | undefined, targetSection: string): boolean {
-    if (!linkedSection) return false;
+    if (!linkedSection) {
+      console.log(`      ❌ No linkedSection field`);
+      return false;
+    }
     
     const normalized1 = this.normalizeSectionCode(linkedSection);
     const normalized2 = this.normalizeSectionCode(targetSection);
     
+    console.log(`      🔍 Comparing: "${linkedSection}" (normalized: "${normalized1}") vs "${targetSection}" (normalized: "${normalized2}")`);
+    
     // Try exact match after normalization
-    if (normalized1 === normalized2) return true;
+    if (normalized1 === normalized2) {
+      console.log(`      ✅ EXACT MATCH!`);
+      return true;
+    }
     
     // Try matching just the section part (e.g., "L1" matches "L12213")
-    // Extract letter+number pattern (L1, LA1, T1, etc.)
     const sectionPattern = /^([A-Z]+\d+)/i;
     const match1 = linkedSection.match(sectionPattern);
     const match2 = targetSection.match(sectionPattern);
     
     if (match1 && match2) {
-      return match1[1].toUpperCase() === match2[1].toUpperCase();
+      const part1 = match1[1].toUpperCase();
+      const part2 = match2[1].toUpperCase();
+      console.log(`      🔍 Pattern match: "${part1}" vs "${part2}"`);
+      if (part1 === part2) {
+        console.log(`      ✅ PATTERN MATCH!`);
+        return true;
+      }
     }
     
+    console.log(`      ❌ NO MATCH`);
     return false;
   }
   
@@ -117,33 +128,49 @@ export class ScheduleGenerator {
     const [first, ...rest] = sectionsByCourse;
     const combinations: TimetableSection[][] = [];
 
+    console.log(`\n🎓 Processing course: ${first.courseCode}`);
+    console.log(`   Lectures: ${first.lectures.length}, Labs: ${first.labs.length}, Tutorials: ${first.tutorials.length}`);
+
     for (const lecture of first.lectures) {
-      // ✅ Use robust matching function
-      const linkedLab = first.labs.find((lab: TimetableSection) => 
-        this.isSectionLinked(lab.linkedSection, lecture.sectionCode)
-      );
+      console.log(`\n  📚 Lecture: ${lecture.sectionCode}`);
       
-      const linkedTutorial = first.tutorials.find((tut: TimetableSection) => 
-        this.isSectionLinked(tut.linkedSection, lecture.sectionCode)
-      );
+      // Check all labs
+      console.log(`    🔬 Checking ${first.labs.length} labs:`);
+      const linkedLab = first.labs.find((lab: TimetableSection) => {
+        console.log(`    Lab: ${lab.sectionCode}, linkedSection: "${lab.linkedSection}"`);
+        return this.isSectionLinked(lab.linkedSection, lecture.sectionCode);
+      });
+      
+      // Check all tutorials
+      console.log(`    📝 Checking ${first.tutorials.length} tutorials:`);
+      const linkedTutorial = first.tutorials.find((tut: TimetableSection) => {
+        console.log(`    Tutorial: ${tut.sectionCode}, linkedSection: "${tut.linkedSection}"`);
+        return this.isSectionLinked(tut.linkedSection, lecture.sectionCode);
+      });
 
       let labsToTry: (TimetableSection | null)[];
       let tutorialsToTry: (TimetableSection | null)[];
 
       if (linkedLab) {
         labsToTry = [linkedLab];
+        console.log(`    ✅ Using ONLY linked lab: ${linkedLab.sectionCode}`);
       } else if (first.labs.length > 0) {
         labsToTry = first.labs;
+        console.log(`    ⚠️ No linked lab found, using ALL ${first.labs.length} labs`);
       } else {
         labsToTry = [null];
+        console.log(`    ℹ️ No labs for this course`);
       }
 
       if (linkedTutorial) {
         tutorialsToTry = [linkedTutorial];
+        console.log(`    ✅ Using ONLY linked tutorial: ${linkedTutorial.sectionCode}`);
       } else if (first.tutorials.length > 0) {
         tutorialsToTry = first.tutorials;
+        console.log(`    ⚠️ No linked tutorial found, using ALL ${first.tutorials.length} tutorials`);
       } else {
         tutorialsToTry = [null];
+        console.log(`    ℹ️ No tutorials for this course`);
       }
 
       for (const lab of labsToTry) {
@@ -160,6 +187,7 @@ export class ScheduleGenerator {
       }
     }
 
+    console.log(`  ✨ Generated ${combinations.length} combinations for ${first.courseCode}\n`);
     return combinations;
   }
 
