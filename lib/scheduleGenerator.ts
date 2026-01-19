@@ -2,32 +2,62 @@ import type { Course, Section, TimetableSection } from './types';
 import type { UserPreferences, ScheduleCombination } from './preferences';
 
 const COLORS = [
-  'bg-[#F75590]', // Wild Strawberry (Pink)
-  'bg-[#FCE4D8]', // Powder Petal (Peach)
-  'bg-[#FBD87F]', // Jasmine (Yellow)
-  'bg-[#B5F8FE]', // Icy Aqua (Light Blue)
-  'bg-[#10FFCB]', // Tropical Mint (Mint)
-  'bg-[#E7B8FF]', // Lavender (Purple)
-  'bg-[#FFD4D4]', // Light Coral
-  'bg-[#C4A5E1]', // Soft Purple
-  'bg-blue-600', // Deep Blue
-  'bg-teal-600', // Teal
-  'bg-orange-600', // Orange
+  'bg-[#F75590]',
+  'bg-[#FCE4D8]',
+  'bg-[#FBD87F]',
+  'bg-[#B5F8FE]',
+  'bg-[#10FFCB]',
+  'bg-[#E7B8FF]',
+  'bg-[#FFD4D4]',
+  'bg-[#C4A5E1]',
+  'bg-blue-600',
+  'bg-teal-600',
+  'bg-orange-600',
 ];
 
 export class ScheduleGenerator {
+  
+  // ✅ NEW: Helper function to normalize section codes for matching
+  private normalizeSectionCode(code: string | null | undefined): string {
+    if (!code) return '';
+    // Remove spaces, parentheses, and convert to uppercase
+    // "L1 (2213)" → "L12213"
+    // "L1" → "L1"
+    return code.toUpperCase().replace(/[\s()]/g, '');
+  }
+
+  // ✅ NEW: Check if two sections are linked
+  private isSectionLinked(linkedSection: string | null | undefined, targetSection: string): boolean {
+    if (!linkedSection) return false;
+    
+    const normalized1 = this.normalizeSectionCode(linkedSection);
+    const normalized2 = this.normalizeSectionCode(targetSection);
+    
+    // Try exact match after normalization
+    if (normalized1 === normalized2) return true;
+    
+    // Try matching just the section part (e.g., "L1" matches "L12213")
+    // Extract letter+number pattern (L1, LA1, T1, etc.)
+    const sectionPattern = /^([A-Z]+\d+)/i;
+    const match1 = linkedSection.match(sectionPattern);
+    const match2 = targetSection.match(sectionPattern);
+    
+    if (match1 && match2) {
+      return match1[1].toUpperCase() === match2[1].toUpperCase();
+    }
+    
+    return false;
+  }
   
   generateCombinations(
     courses: Course[], 
     preferences: UserPreferences
   ): ScheduleCombination[] {
     
-    // Step 1: Convert Course objects to TimetableSections with colors
     const courseColorMap: { [key: string]: string } = {};
     let colorIndex = 0;
     
     const sectionsByCourse = courses.map(course => {
-      // Assign color to this course if not already assigned
       if (!courseColorMap[course.courseCode]) {
         courseColorMap[course.courseCode] = COLORS[colorIndex % COLORS.length];
         colorIndex++;
@@ -35,9 +65,7 @@ export class ScheduleGenerator {
       
       const courseColor = courseColorMap[course.courseCode];
       
-      // Convert sections to TimetableSection format
       const convertSection = (section: Section): TimetableSection => ({
-        // Section fields
         sectionCode: section.sectionCode,
         dateTime: section.dateTime,
         room: section.room,
@@ -51,12 +79,10 @@ export class ScheduleGenerator {
         parsedTime: section.parsedTime,
         sectionType: section.sectionType,
         linkedSection: section.linkedSection,
-        
-        // TimetableSection additional fields
         courseCode: course.courseCode,
         courseTitle: course.courseTitle,
         credits: course.credits,
-        color: courseColor, // Same color for all sections of this course
+        color: courseColor,
       });
       
       return {
@@ -73,21 +99,15 @@ export class ScheduleGenerator {
       };
     });
 
-    // Step 2: Generate all possible combinations (Cartesian product)
     const allCombinations = this.cartesianProduct(sectionsByCourse);
-
-    // Step 3: Filter out combinations with time conflicts
     const validCombinations = allCombinations.filter(combo => 
       !this.hasTimeConflict(combo)
     );
-
-    // Step 4: Score each combination
     const scoredCombinations = validCombinations.map(combo => ({
       sections: combo,
       ...this.scoreSchedule(combo, preferences)
     }));
 
-    // Step 5: Sort by score (highest first)
     return scoredCombinations.sort((a, b) => b.score - a.score);
   }
 
@@ -97,51 +117,39 @@ export class ScheduleGenerator {
     const [first, ...rest] = sectionsByCourse;
     const combinations: TimetableSection[][] = [];
 
-    // For each lecture in the first course
     for (const lecture of first.lectures) {
-      // ✅ STEP 1: Find sections linked to this specific lecture
+      // ✅ Use robust matching function
       const linkedLab = first.labs.find((lab: TimetableSection) => 
-        lab.linkedSection === lecture.sectionCode
+        this.isSectionLinked(lab.linkedSection, lecture.sectionCode)
       );
       
       const linkedTutorial = first.tutorials.find((tut: TimetableSection) => 
-        tut.linkedSection === lecture.sectionCode
+        this.isSectionLinked(tut.linkedSection, lecture.sectionCode)
       );
 
-      // ✅ STEP 2: Determine which labs/tutorials to try
       let labsToTry: (TimetableSection | null)[];
       let tutorialsToTry: (TimetableSection | null)[];
 
       if (linkedLab) {
-        // If there's a linked lab, ONLY use that one (e.g., L1 must use LA1)
         labsToTry = [linkedLab];
       } else if (first.labs.length > 0) {
-        // If there are labs but no linked section, try all labs
-        // (This handles cases where linking isn't enforced in data)
         labsToTry = first.labs;
       } else {
-        // No labs at all for this course
         labsToTry = [null];
       }
 
       if (linkedTutorial) {
-        // If there's a linked tutorial, ONLY use that one
         tutorialsToTry = [linkedTutorial];
       } else if (first.tutorials.length > 0) {
-        // If there are tutorials but no linked section, try all
         tutorialsToTry = first.tutorials;
       } else {
-        // No tutorials at all for this course
         tutorialsToTry = [null];
       }
 
-      // ✅ STEP 3: Generate combinations
       for (const lab of labsToTry) {
         for (const tutorial of tutorialsToTry) {
-          // Get combinations of remaining courses
           const restCombos = this.cartesianProduct(rest);
 
-          // Add current course sections to each combination
           for (const restCombo of restCombos) {
             const combo = [lecture];
             if (lab) combo.push(lab);
@@ -227,7 +235,7 @@ export class ScheduleGenerator {
         const slots = section.parsedTime.timeslots || [section.parsedTime];
         slots.forEach(slot => {
           const startTime = this.parseTime(slot.startTime);
-          if (startTime < 600) { // Before 10:00 AM
+          if (startTime < 600) {
             count += slot.days.length;
           }
         });
@@ -243,7 +251,7 @@ export class ScheduleGenerator {
         const slots = section.parsedTime.timeslots || [section.parsedTime];
         slots.forEach(slot => {
           const endTime = this.parseTime(slot.endTime);
-          if (endTime > 1080) { // After 6:00 PM
+          if (endTime > 1080) {
             count += slot.days.length;
           }
         });
@@ -305,7 +313,7 @@ export class ScheduleGenerator {
       schedule.sort((a, b) => a.start - b.start);
       for (let i = 0; i < schedule.length - 1; i++) {
         const gap = schedule[i + 1].start - schedule[i].end;
-        if (gap > 60) { // Gaps over 1 hour
+        if (gap > 60) {
           totalGapMinutes += gap;
         }
       }

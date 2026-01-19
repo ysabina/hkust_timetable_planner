@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sparkles, Sliders, Loader2, X, Search } from 'lucide-react';
 import type { Course, TimetableSection } from '../lib/types';
 import type { UserPreferences, ScheduleCombination } from '../lib/preferences';
@@ -34,7 +34,23 @@ export default function SmartPlanner({
   onClearPreview,
   isPreviewMode
 }: SmartPlannerProps) {
-  const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
+  // ✅ FIX: Initialize directly from localStorage using lazy initializer
+  const [selectedCourses, setSelectedCourses] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('smart-planner-courses');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          console.log('🎯 INITIAL LOAD from localStorage:', parsed);
+          return parsed;
+        }
+      } catch (error) {
+        console.error('❌ Error loading from localStorage:', error);
+      }
+    }
+    return [];
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [preferences, setPreferences] = useState<UserPreferences>({
     weights: {
@@ -49,9 +65,21 @@ export default function SmartPlanner({
   const [results, setResults] = useState<ScheduleCombination[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // ✅ Save to localStorage whenever selectedCourses changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        console.log('💾 SAVING to localStorage:', selectedCourses);
+        localStorage.setItem('smart-planner-courses', JSON.stringify(selectedCourses));
+      } catch (error) {
+        console.error('❌ Error saving to localStorage:', error);
+      }
+    }
+  }, [selectedCourses]);
+
   // Filter courses based on search (works with or without space)
   const normalizeQuery = (query: string) => {
-    return query.toLowerCase().replace(/\s+/g, ''); // Remove all spaces
+    return query.toLowerCase().replace(/\s+/g, '');
   };
 
   const filteredCourses = searchQuery.trim()
@@ -64,18 +92,26 @@ export default function SmartPlanner({
                normalizedTitle.includes(normalizedQuery) ||
                course.courseCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
                course.courseTitle.toLowerCase().includes(searchQuery.toLowerCase());
-      }).slice(0, 20) // Limit to 20 results
+      }).slice(0, 20)
     : [];
 
   const addCourse = (courseCode: string) => {
     if (!selectedCourses.includes(courseCode)) {
       setSelectedCourses(prev => [...prev, courseCode]);
-      setSearchQuery(''); // Clear search after adding
+      setSearchQuery('');
     }
   };
 
   const removeCourse = (courseCode: string) => {
     setSelectedCourses(prev => prev.filter(c => c !== courseCode));
+  };
+
+  const clearSelectedCourses = () => {
+    setSelectedCourses([]);
+    setResults([]);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('smart-planner-courses');
+    }
   };
 
   const getTagColor = (index: number) => {
@@ -105,7 +141,7 @@ export default function SmartPlanner({
           alert('No valid schedules found. Try adjusting your preferences or course selection.');
         }
         
-        setResults(combinations.slice(0, 10)); // Top 10 results
+        setResults(combinations.slice(0, 10));
       } catch (error) {
         console.error('Error generating schedules:', error);
         alert('Error generating schedules. Please try with fewer courses.');
@@ -117,18 +153,27 @@ export default function SmartPlanner({
 
   return (
     <div className="h-full flex flex-col bg-gradient-to-br from-[#372549] to-[#774C60] rounded-lg shadow-xl overflow-hidden">
-      {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto p-6">
         <h2 className="text-2xl font-bold text-[#EACDC2] mb-4 flex items-center gap-2">
           <Sparkles className="w-6 h-6" />
-          Smart Planner
+          Automated Planning
         </h2>
 
         {/* Course Selection */}
         <div className="mb-4">
-          <h3 className="text-sm font-semibold text-[#EACDC2] mb-2">
-            Add Courses ({selectedCourses.length} selected)
-          </h3>
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-sm font-semibold text-[#EACDC2]">
+              Add Courses ({selectedCourses.length} selected)
+            </h3>
+            {selectedCourses.length > 0 && (
+              <button
+                onClick={clearSelectedCourses}
+                className="text-xs text-red-400 hover:text-red-300 transition-colors font-medium"
+              >
+                Clear All
+              </button>
+            )}
+          </div>
           
           {/* Search Input */}
           <div className="relative mb-3">

@@ -9,7 +9,7 @@ import { courseAPI } from '../lib/api';
 import type { Course, TimetableSection } from '../lib/types';
 import { Calendar, Search, Sparkles, X } from 'lucide-react';
 
-// ✅ Color palette for courses
+// Color palette for courses
 const COURSE_COLORS = [
   'bg-[#F75590]', // Wild Strawberry (Pink)
   'bg-[#FCE4D8]', // Powder Petal (Peach)
@@ -186,7 +186,7 @@ export default function Home() {
                 }`}
               >
                 <Sparkles className="w-4 h-4" />
-                Smart Planner
+                Automated Planning
               </button>
             </div>
 
