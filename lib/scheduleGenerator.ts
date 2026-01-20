@@ -227,34 +227,45 @@ export class ScheduleGenerator {
   }
 
   private scoreSchedule(
-    sections: TimetableSection[], 
-    preferences: UserPreferences
-  ): { score: number; breakdown: any } {
-    
-    let score = 100;
-    const breakdown = {
-      morningPenalty: 0,
-      eveningPenalty: 0,
-      fridayPenalty: 0,
-      daysOffBonus: 0,
-      gapPenalty: 0,
-      compactBonus: 0,
-    };
+  sections: TimetableSection[], 
+  preferences: UserPreferences
+): { score: number; breakdown: any } {
+  
+  const breakdown = {
+    morningPenalty: 0,
+    eveningPenalty: 0,
+    fridayPenalty: 0,
+    daysOffBonus: 0,
+    gapPenalty: 0,
+    compactBonus: 0,
+  };
 
-    breakdown.morningPenalty = this.calculateMorningPenalty(sections);
-    breakdown.eveningPenalty = this.calculateEveningPenalty(sections);
-    breakdown.fridayPenalty = this.calculateFridayPenalty(sections);
-    breakdown.daysOffBonus = this.calculateDaysOffBonus(sections);
-    breakdown.gapPenalty = this.calculateGapPenalty(sections);
+  breakdown.morningPenalty = this.calculateMorningPenalty(sections);
+  breakdown.eveningPenalty = this.calculateEveningPenalty(sections);
+  breakdown.fridayPenalty = this.calculateFridayPenalty(sections);
+  breakdown.daysOffBonus = this.calculateDaysOffBonus(sections);
+  breakdown.gapPenalty = this.calculateGapPenalty(sections);
 
-    score -= breakdown.morningPenalty * preferences.weights.noMorning;
-    score -= breakdown.eveningPenalty * preferences.weights.noEvening;
-    score -= breakdown.fridayPenalty * preferences.weights.noFriday;
-    score += breakdown.daysOffBonus * preferences.weights.daysOff;
-    score -= breakdown.gapPenalty * preferences.weights.minimizeGaps;
+  // Normalize each component to 0-10 scale based on weights
+  const totalWeight = preferences.weights.noMorning + 
+                     preferences.weights.noEvening + 
+                     preferences.weights.noFriday + 
+                     preferences.weights.daysOff + 
+                     preferences.weights.minimizeGaps;
 
-    return { score: Math.max(0, score), breakdown };
-  }
+  // Calculate weighted contributions (normalized to percentage of total weight)
+  const morningScore = (10 - Math.min(10, breakdown.morningPenalty)) * (preferences.weights.noMorning / totalWeight);
+  const eveningScore = (10 - Math.min(10, breakdown.eveningPenalty)) * (preferences.weights.noEvening / totalWeight);
+  const fridayScore = (10 - Math.min(10, breakdown.fridayPenalty)) * (preferences.weights.noFriday / totalWeight);
+  const daysOffScore = Math.min(10, breakdown.daysOffBonus) * (preferences.weights.daysOff / totalWeight);
+  const gapScore = (10 - Math.min(10, breakdown.gapPenalty)) * (preferences.weights.minimizeGaps / totalWeight);
+
+  // Sum all components and scale to 0-100
+  const score = Math.round((morningScore + eveningScore + fridayScore + daysOffScore + gapScore) * 10);
+
+  return { score: Math.min(100, Math.max(0, score)), breakdown };
+}
+
 
   private calculateMorningPenalty(sections: TimetableSection[]): number {
     let count = 0;
