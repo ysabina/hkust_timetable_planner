@@ -3,7 +3,7 @@ import type { Course, Conflict } from './types';
 export const courseAPI = {
   // Get all courses from static JSON
   getAllCourses: async (): Promise<Course[]> => {
-    const response = await fetch('/courses_2530.json');
+    const response = await fetch('/courses_2610.json');
     if (!response.ok) {
       throw new Error('Failed to fetch courses');
     }

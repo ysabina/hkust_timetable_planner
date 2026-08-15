@@ -16,6 +16,16 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Refresh course data
+
+Course data is scraped from HKUST's Class Schedule & Quota site. Pass the HKUST term code and output file explicitly when refreshing it:
+
+```bash
+npm run scrape:courses -- --term 2610 --output public/courses_2610.json
+```
+
+Term `2610` is 2026-27 Fall. After generating another term, update the filename fetched in `lib/api.ts` and the term label in `app/page.tsx`.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

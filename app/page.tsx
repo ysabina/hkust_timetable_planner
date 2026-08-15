@@ -89,7 +89,7 @@ export default function Home() {
                   HKUST Timetable Planner
                 </h1>
                 <p className="text-sm text-[#EACDC2]/70">
-                  Spring 2025-26
+                  Fall 2026-27
                   {previewSections && (
                     <span className="ml-2 text-yellow-400 font-semibold">• Preview Mode</span>
                   )}

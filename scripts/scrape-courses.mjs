@@ -1,0 +1,225 @@
+#!/usr/bin/env node
+
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import https from 'node:https';
+import { load } from 'cheerio';
+
+const BASE_URL = 'https://w5.ab.ust.hk/wcq/cgi-bin';
+const DAY_NAMES = {
+  Mo: 'Monday',
+  Tu: 'Tuesday',
+  We: 'Wednesday',
+  Th: 'Thursday',
+  Fr: 'Friday',
+  Sa: 'Saturday',
+  Su: 'Sunday',
+};
+
+function readOption(name, fallback) {
+  const index = process.argv.indexOf(`--${name}`);
+  return index === -1 ? fallback : process.argv[index + 1];
+}
+
+const term = readOption('term', '2610');
+const output = resolve(readOption('output', `public/courses_${term}.json`));
+const concurrency = Number(readOption('concurrency', '6'));
+
+if (!/^\d{4}$/.test(term)) {
+  throw new Error(`Invalid term code: ${term}`);
+}
+if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 12) {
+  throw new Error('Concurrency must be an integer between 1 and 12');
+}
+
+function cleanText(value) {
+  return value.replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, '; ').trim();
+}
+
+function cellText(cell) {
+  const clone = cell.clone();
+  clone.find('br').replaceWith('\n');
+  return cleanText(clone.text());
+}
+
+function fetchHtml(url, redirectsLeft = 3) {
+  return new Promise((resolveHtml, reject) => {
+    const request = https.get(url, {
+      headers: { 'User-Agent': 'hkust-timetable-planner/1.0 (course data refresh)' },
+    }, (response) => {
+      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        response.resume();
+        if (redirectsLeft === 0) {
+          reject(new Error(`Too many redirects for ${url}`));
+          return;
+        }
+        resolveHtml(fetchHtml(new URL(response.headers.location, url), redirectsLeft - 1));
+        return;
+      }
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error(`${response.statusCode} ${response.statusMessage} for ${url}`));
+        return;
+      }
+
+      response.setEncoding('utf8');
+      let html = '';
+      response.on('data', (chunk) => {
+        html += chunk;
+        // The HKUST server occasionally leaves a completed chunked response open.
+        if (html.includes('</html>')) {
+          resolveHtml(html);
+          request.destroy();
+        }
+      });
+      response.on('end', () => resolveHtml(html));
+      response.on('error', (error) => {
+        if (!html.includes('</html>')) reject(error);
+      });
+    });
+    request.setTimeout(90_000, () => request.destroy(new Error(`Timed out fetching ${url}`)));
+    request.on('error', reject);
+  });
+}
+
+async function fetchWithRetry(url, attempts = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetchHtml(url);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await new Promise((done) => setTimeout(done, attempt * 1_000));
+    }
+  }
+  throw lastError;
+}
+
+function parseDays(dayCodes) {
+  const matches = dayCodes.match(/Mo|Tu|We|Th|Fr|Sa|Su/g) ?? [];
+  return matches.map((day) => DAY_NAMES[day]);
+}
+
+function parseTime(dateTime) {
+  const pattern = /((?:Mo|Tu|We|Th|Fr|Sa|Su)+)\s+(\d{1,2}:\d{2}(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}(?:AM|PM))/g;
+  const timeslots = [];
+  const seen = new Set();
+  let match;
+
+  while ((match = pattern.exec(dateTime)) !== null) {
+    const timeslot = { days: parseDays(match[1]), startTime: match[2], endTime: match[3] };
+    const key = JSON.stringify(timeslot);
+    if (timeslot.days.length > 0 && !seen.has(key)) {
+      timeslots.push(timeslot);
+      seen.add(key);
+    }
+  }
+
+  if (timeslots.length === 0) return undefined;
+  return {
+    days: [...new Set(timeslots.flatMap((slot) => slot.days))],
+    startTime: timeslots[0].startTime,
+    endTime: timeslots[0].endTime,
+    timeslots,
+  };
+}
+
+function sectionMetadata(sectionCode) {
+  const shortCode = sectionCode.split(/\s+/)[0].toUpperCase();
+  if (shortCode.startsWith('LA')) {
+    return { sectionType: 'LAB', linkedSection: sectionCode.replace(/^LA/i, 'L') };
+  }
+  if (shortCode.startsWith('T')) {
+    return { sectionType: 'TUTORIAL', linkedSection: null };
+  }
+  return { sectionType: 'LECTURE', linkedSection: null };
+}
+
+function parseSubjectPage(html, expectedDepartment) {
+  const $ = load(html);
+  const courses = [];
+
+  $('.course').each((_, courseElement) => {
+    const course = $(courseElement);
+    const courseTitle = cleanText(course.find('.subject').first().text());
+    const titleMatch = courseTitle.match(/^([A-Z]+)\s+([0-9]{3,4}[A-Z]?)\s+-\s+.*?\((\d+(?:\.\d+)?)\s+units?\)$/i);
+    if (!titleMatch) return;
+
+    const department = titleMatch[1].toUpperCase();
+    const courseCode = `${department} ${titleMatch[2].toUpperCase()}`;
+    const sections = [];
+
+    course.find('table.sections tr.mainRow').each((__, rowElement) => {
+      const cells = $(rowElement).children('td');
+      if (cells.length < 10) return;
+
+      const sectionCode = cellText(cells.eq(0));
+      if (!sectionCode) return;
+      const dateTime = cellText(cells.eq(1));
+      const instructors = cells.eq(3).find('.instructorList').first().children('a').map((___, item) => cleanText($(item).text())).get();
+      const assistants = cells.eq(4).find('.instructorList').first().children('a').map((___, item) => cleanText($(item).text())).get();
+      const metadata = sectionMetadata(sectionCode);
+      const parsedTime = parseTime(dateTime);
+
+      sections.push({
+        sectionCode,
+        dateTime,
+        room: cellText(cells.eq(2)),
+        instructor: instructors.length ? instructors.join('; ') : cellText(cells.eq(3)),
+        taIaGta: assistants.length ? assistants.join('; ') : cellText(cells.eq(4)),
+        quota: cellText(cells.eq(5).clone().find('.quotadetail').remove().end()),
+        enrolled: cellText(cells.eq(6)),
+        available: cellText(cells.eq(7)),
+        wait: cellText(cells.eq(8)),
+        remarks: cellText(cells.eq(9).find('.popupdetail').first()),
+        ...metadata,
+        ...(parsedTime ? { parsedTime } : {}),
+      });
+    });
+
+    if (department === expectedDepartment && sections.length > 0) {
+      courses.push({ courseCode, courseTitle, department, credits: Number(titleMatch[3]), sections });
+    }
+  });
+
+  return courses;
+}
+
+async function mapConcurrent(items, limit, work) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await work(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+const indexUrl = `${BASE_URL}/${term}/subject/ACCT`;
+console.log(`Discovering subjects from ${indexUrl}`);
+const indexHtml = await fetchWithRetry(indexUrl);
+const indexPage = load(indexHtml);
+const departments = [...new Set(indexPage('#subjectItems a[href*="/subject/"]').map((_, link) => cleanText(indexPage(link).text())).get())];
+
+if (departments.length === 0) throw new Error(`No subjects found for term ${term}`);
+console.log(`Found ${departments.length} subjects. Fetching with concurrency ${concurrency}...`);
+
+const pages = await mapConcurrent(departments, concurrency, async (department, index) => {
+  const url = `${BASE_URL}/${term}/subject/${department}`;
+  const html = department === 'ACCT' ? indexHtml : await fetchWithRetry(url);
+  const courses = parseSubjectPage(html, department);
+  console.log(`[${index + 1}/${departments.length}] ${department}: ${courses.length} courses`);
+  return courses;
+});
+
+const courses = pages.flat().sort((a, b) => a.courseCode.localeCompare(b.courseCode));
+const sectionCount = courses.reduce((total, course) => total + course.sections.length, 0);
+if (courses.length === 0 || sectionCount === 0) throw new Error('Scrape produced no usable course data');
+
+await mkdir(dirname(output), { recursive: true });
+await writeFile(output, `${JSON.stringify(courses, null, 2)}\n`);
+console.log(`Wrote ${courses.length} courses and ${sectionCount} sections to ${output}`);
