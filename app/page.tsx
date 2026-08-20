@@ -44,9 +44,17 @@ export default function Home() {
     fetchCourses();
   }, []);
   
-  const totalCredits = selectedSections
-    .filter(s => s.sectionType === 'LECTURE')
-    .reduce((sum, s) => sum + (s.credits || 0), 0);
+  const calculateCredits = (sections: TimetableSection[]) => {
+    const creditsByCourse = new Map<string, number>();
+    sections.forEach(section => {
+      if (!creditsByCourse.has(section.courseCode)) {
+        creditsByCourse.set(section.courseCode, section.credits || 0);
+      }
+    });
+    return [...creditsByCourse.values()].reduce((sum, credits) => sum + credits, 0);
+  };
+
+  const totalCredits = calculateCredits(selectedSections);
 
   // ✅ Function to assign colors to preview sections
   const assignColorsToSections = (sections: TimetableSection[]): TimetableSection[] => {
@@ -71,8 +79,11 @@ export default function Home() {
     : selectedSections;
 
   const previewCredits = previewSections
-    ? previewSections.filter(s => s.sectionType === 'LECTURE').reduce((sum, s) => sum + (s.credits || 0), 0)
+    ? calculateCredits(previewSections)
     : 0;
+  const displayedCourseCount = new Set(
+    (previewSections || selectedSections).map(section => section.courseCode)
+  ).size;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1A1423] via-[#372549] to-[#774C60]">
@@ -101,10 +112,7 @@ export default function Home() {
               <div className="px-4 py-2 bg-[#372549]/50 rounded-lg border border-[#774C60]">
                 <span className="text-[#EACDC2]/80 text-sm">
                   <span className="font-bold text-[#B75D69]">
-                    {previewSections 
-                      ? previewSections.filter(s => s.sectionType === 'LECTURE').length
-                      : selectedSections.filter(s => s.sectionType === 'LECTURE').length
-                    }
+                    {displayedCourseCount}
                   </span> courses {previewSections ? 'previewing' : 'selected'}
                 </span>
               </div>

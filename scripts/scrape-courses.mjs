@@ -2,6 +2,7 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import https from 'node:https';
 import { load } from 'cheerio';
 
@@ -100,7 +101,7 @@ function parseDays(dayCodes) {
   return matches.map((day) => DAY_NAMES[day]);
 }
 
-function parseTime(dateTime) {
+export function parseTime(dateTime) {
   const pattern = /((?:Mo|Tu|We|Th|Fr|Sa|Su)+)\s+(\d{1,2}:\d{2}(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}(?:AM|PM))/g;
   const timeslots = [];
   const seen = new Set();
@@ -135,7 +136,30 @@ function sectionMetadata(sectionCode) {
   return { sectionType: 'LECTURE', linkedSection: null };
 }
 
-function parseSubjectPage(html, expectedDepartment) {
+function uniqueNonEmpty(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function linkedMeetingRows($, mainRow) {
+  const rows = [$(mainRow)];
+  let sibling = $(mainRow).next();
+
+  while (sibling.length > 0 && !sibling.hasClass('mainRow')) {
+    if (sibling.hasClass('otherRow')) rows.push(sibling);
+    sibling = sibling.next();
+  }
+
+  return rows;
+}
+
+function peopleFromCell($, cell) {
+  const links = cell.find('.instructorList').first().children('a')
+    .map((_, item) => cleanText($(item).text()))
+    .get();
+  return links.length ? links : [cellText(cell)];
+}
+
+export function parseSubjectPage(html, expectedDepartment) {
   const $ = load(html);
   const courses = [];
 
@@ -155,18 +179,21 @@ function parseSubjectPage(html, expectedDepartment) {
 
       const sectionCode = cellText(cells.eq(0));
       if (!sectionCode) return;
-      const dateTime = cellText(cells.eq(1));
-      const instructors = cells.eq(3).find('.instructorList').first().children('a').map((___, item) => cleanText($(item).text())).get();
-      const assistants = cells.eq(4).find('.instructorList').first().children('a').map((___, item) => cleanText($(item).text())).get();
+      const meetingRows = linkedMeetingRows($, rowElement);
+      const meetingCells = meetingRows.map((row) => row.children('td'));
+      const dateTime = uniqueNonEmpty(meetingCells.map((rowCells) => cellText(rowCells.eq(1)))).join('; ');
+      const rooms = uniqueNonEmpty(meetingCells.map((rowCells) => cellText(rowCells.eq(2))));
+      const instructors = uniqueNonEmpty(meetingCells.flatMap((rowCells) => peopleFromCell($, rowCells.eq(3))));
+      const assistants = uniqueNonEmpty(meetingCells.flatMap((rowCells) => peopleFromCell($, rowCells.eq(4))));
       const metadata = sectionMetadata(sectionCode);
       const parsedTime = parseTime(dateTime);
 
       sections.push({
         sectionCode,
         dateTime,
-        room: cellText(cells.eq(2)),
-        instructor: instructors.length ? instructors.join('; ') : cellText(cells.eq(3)),
-        taIaGta: assistants.length ? assistants.join('; ') : cellText(cells.eq(4)),
+        room: rooms.join('; '),
+        instructor: instructors.join('; '),
+        taIaGta: assistants.join('; '),
         quota: cellText(cells.eq(5).clone().find('.quotadetail').remove().end()),
         enrolled: cellText(cells.eq(6)),
         available: cellText(cells.eq(7)),
@@ -199,27 +226,33 @@ async function mapConcurrent(items, limit, work) {
   return results;
 }
 
-const indexUrl = `${BASE_URL}/${term}/subject/ACCT`;
-console.log(`Discovering subjects from ${indexUrl}`);
-const indexHtml = await fetchWithRetry(indexUrl);
-const indexPage = load(indexHtml);
-const departments = [...new Set(indexPage('#subjectItems a[href*="/subject/"]').map((_, link) => cleanText(indexPage(link).text())).get())];
+async function main() {
+  const indexUrl = `${BASE_URL}/${term}/subject/ACCT`;
+  console.log(`Discovering subjects from ${indexUrl}`);
+  const indexHtml = await fetchWithRetry(indexUrl);
+  const indexPage = load(indexHtml);
+  const departments = [...new Set(indexPage('#subjectItems a[href*="/subject/"]').map((_, link) => cleanText(indexPage(link).text())).get())];
 
-if (departments.length === 0) throw new Error(`No subjects found for term ${term}`);
-console.log(`Found ${departments.length} subjects. Fetching with concurrency ${concurrency}...`);
+  if (departments.length === 0) throw new Error(`No subjects found for term ${term}`);
+  console.log(`Found ${departments.length} subjects. Fetching with concurrency ${concurrency}...`);
 
-const pages = await mapConcurrent(departments, concurrency, async (department, index) => {
-  const url = `${BASE_URL}/${term}/subject/${department}`;
-  const html = department === 'ACCT' ? indexHtml : await fetchWithRetry(url);
-  const courses = parseSubjectPage(html, department);
-  console.log(`[${index + 1}/${departments.length}] ${department}: ${courses.length} courses`);
-  return courses;
-});
+  const pages = await mapConcurrent(departments, concurrency, async (department, index) => {
+    const url = `${BASE_URL}/${term}/subject/${department}`;
+    const html = department === 'ACCT' ? indexHtml : await fetchWithRetry(url);
+    const courses = parseSubjectPage(html, department);
+    console.log(`[${index + 1}/${departments.length}] ${department}: ${courses.length} courses`);
+    return courses;
+  });
 
-const courses = pages.flat().sort((a, b) => a.courseCode.localeCompare(b.courseCode));
-const sectionCount = courses.reduce((total, course) => total + course.sections.length, 0);
-if (courses.length === 0 || sectionCount === 0) throw new Error('Scrape produced no usable course data');
+  const courses = pages.flat().sort((a, b) => a.courseCode.localeCompare(b.courseCode));
+  const sectionCount = courses.reduce((total, course) => total + course.sections.length, 0);
+  if (courses.length === 0 || sectionCount === 0) throw new Error('Scrape produced no usable course data');
 
-await mkdir(dirname(output), { recursive: true });
-await writeFile(output, `${JSON.stringify(courses, null, 2)}\n`);
-console.log(`Wrote ${courses.length} courses and ${sectionCount} sections to ${output}`);
+  await mkdir(dirname(output), { recursive: true });
+  await writeFile(output, `${JSON.stringify(courses, null, 2)}\n`);
+  console.log(`Wrote ${courses.length} courses and ${sectionCount} sections to ${output}`);
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
+}

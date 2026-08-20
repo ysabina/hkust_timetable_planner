@@ -280,6 +280,7 @@ useEffect(() => {
                 <div className="p-2 space-y-2">
                   {courses.map(course => {
                     const lectureSections = course.sections.filter(s => s.sectionType === 'LECTURE');
+                    const primarySectionCount = lectureSections.length || course.sections.length;
                     
                     return (
                       <div key={course.courseCode}
@@ -298,7 +299,7 @@ useEffect(() => {
                             <p className="font-semibold text-[#EACDC2] text-sm">{course.courseCode}</p>
                             <p className="text-xs text-[#EACDC2]/80 line-clamp-2">{course.courseTitle}</p>
                             <div className="flex items-center gap-2 mt-0.5">
-                              <p className="text-xs text-[#B75D69]">{lectureSections.length} section(s)</p>
+                              <p className="text-xs text-[#B75D69]">{primarySectionCount} section(s)</p>
                               {course.credits && course.credits > 0 && (
                                 <span className="text-xs text-[#EACDC2]/60">• {course.credits} credits</span>
                               )}

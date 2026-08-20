@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "scrape:courses": "node scripts/scrape-courses.mjs"
+    "scrape:courses": "node scripts/scrape-courses.mjs",
+    "test:scraper": "node --test scripts/scrape-courses.test.mjs",
+    "test:planner": "node scripts/stress-test-planner.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.562.0",

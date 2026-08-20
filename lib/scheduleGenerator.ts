@@ -16,6 +16,14 @@ const COLORS = [
 ];
 
 export class ScheduleGenerator {
+  private static readonly MAX_CANDIDATE_SCHEDULES = 2000;
+  private static readonly MAX_SEARCH_NODES = 250000;
+
+  public lastRunStats = {
+    exploredNodes: 0,
+    candidateSchedules: 0,
+    truncated: false,
+  };
   
   // ✅ Helper function to normalize section codes for matching
   private normalizeSectionCode(code: string | null | undefined): string {
@@ -23,23 +31,15 @@ export class ScheduleGenerator {
     return code.toUpperCase().replace(/[\s()]/g, '');
   }
 
-  // ✅ Check if two sections are linked - with detailed logging
+  // Check whether a lab/tutorial is tied to a specific lecture section.
   private isSectionLinked(linkedSection: string | null | undefined, targetSection: string): boolean {
-    if (!linkedSection) {
-      console.log(`      ❌ No linkedSection field`);
-      return false;
-    }
+    if (!linkedSection) return false;
     
     const normalized1 = this.normalizeSectionCode(linkedSection);
     const normalized2 = this.normalizeSectionCode(targetSection);
     
-    console.log(`      🔍 Comparing: "${linkedSection}" (normalized: "${normalized1}") vs "${targetSection}" (normalized: "${normalized2}")`);
-    
     // Try exact match after normalization
-    if (normalized1 === normalized2) {
-      console.log(`      ✅ EXACT MATCH!`);
-      return true;
-    }
+    if (normalized1 === normalized2) return true;
     
     // Try matching just the section part (e.g., "L1" matches "L12213")
     const sectionPattern = /^([A-Z]+\d+)/i;
@@ -49,14 +49,8 @@ export class ScheduleGenerator {
     if (match1 && match2) {
       const part1 = match1[1].toUpperCase();
       const part2 = match2[1].toUpperCase();
-      console.log(`      🔍 Pattern match: "${part1}" vs "${part2}"`);
-      if (part1 === part2) {
-        console.log(`      ✅ PATTERN MATCH!`);
-        return true;
-      }
+      if (part1 === part2) return true;
     }
-    
-    console.log(`      ❌ NO MATCH`);
     return false;
   }
   
@@ -110,10 +104,16 @@ export class ScheduleGenerator {
       };
     });
 
-    const allCombinations = this.cartesianProduct(sectionsByCourse);
-    const validCombinations = allCombinations.filter(combo => 
-      !this.hasTimeConflict(combo)
-    );
+    const courseOptions = sectionsByCourse
+      .map(course => ({
+        courseCode: course.courseCode,
+        options: this.buildCourseOptions(course),
+      }))
+      .sort((a, b) => a.options.length - b.options.length);
+
+    if (courseOptions.some(course => course.options.length === 0)) return [];
+
+    const validCombinations = this.findValidCombinations(courseOptions);
     const scoredCombinations = validCombinations.map(combo => ({
       sections: combo,
       ...this.scoreSchedule(combo, preferences)
@@ -122,72 +122,78 @@ export class ScheduleGenerator {
     return scoredCombinations.sort((a, b) => b.score - a.score);
   }
 
-  private cartesianProduct(sectionsByCourse: any[]): TimetableSection[][] {
-    if (sectionsByCourse.length === 0) return [[]];
+  private buildCourseOptions(course: {
+    lectures: TimetableSection[];
+    labs: TimetableSection[];
+    tutorials: TimetableSection[];
+  }): TimetableSection[][] {
+    const primarySections = course.lectures.length > 0 ? course.lectures : [null];
+    const options: TimetableSection[][] = [];
 
-    const [first, ...rest] = sectionsByCourse;
-    const combinations: TimetableSection[][] = [];
-
-    console.log(`\n🎓 Processing course: ${first.courseCode}`);
-    console.log(`   Lectures: ${first.lectures.length}, Labs: ${first.labs.length}, Tutorials: ${first.tutorials.length}`);
-
-    for (const lecture of first.lectures) {
-      console.log(`\n  📚 Lecture: ${lecture.sectionCode}`);
-      
-      // Check all labs
-      console.log(`    🔬 Checking ${first.labs.length} labs:`);
-      const linkedLab = first.labs.find((lab: TimetableSection) => {
-        console.log(`    Lab: ${lab.sectionCode}, linkedSection: "${lab.linkedSection}"`);
-        return this.isSectionLinked(lab.linkedSection, lecture.sectionCode);
-      });
-      
-      // Check all tutorials
-      console.log(`    📝 Checking ${first.tutorials.length} tutorials:`);
-      const linkedTutorial = first.tutorials.find((tut: TimetableSection) => {
-        console.log(`    Tutorial: ${tut.sectionCode}, linkedSection: "${tut.linkedSection}"`);
-        return this.isSectionLinked(tut.linkedSection, lecture.sectionCode);
-      });
-
-      let labsToTry: (TimetableSection | null)[];
-      let tutorialsToTry: (TimetableSection | null)[];
-
-      if (linkedLab) {
-        labsToTry = [linkedLab];
-        console.log(`    ✅ Using ONLY linked lab: ${linkedLab.sectionCode}`);
-      } else if (first.labs.length > 0) {
-        labsToTry = first.labs;
-        console.log(`    ⚠️ No linked lab found, using ALL ${first.labs.length} labs`);
-      } else {
-        labsToTry = [null];
-        console.log(`    ℹ️ No labs for this course`);
-      }
-
-      if (linkedTutorial) {
-        tutorialsToTry = [linkedTutorial];
-        console.log(`    ✅ Using ONLY linked tutorial: ${linkedTutorial.sectionCode}`);
-      } else if (first.tutorials.length > 0) {
-        tutorialsToTry = first.tutorials;
-        console.log(`    ⚠️ No linked tutorial found, using ALL ${first.tutorials.length} tutorials`);
-      } else {
-        tutorialsToTry = [null];
-        console.log(`    ℹ️ No tutorials for this course`);
-      }
+    for (const lecture of primarySections) {
+      const linkedLabs = lecture
+        ? course.labs.filter(lab => this.isSectionLinked(lab.linkedSection, lecture.sectionCode))
+        : [];
+      const linkedTutorials = lecture
+        ? course.tutorials.filter(tutorial => this.isSectionLinked(tutorial.linkedSection, lecture.sectionCode))
+        : [];
+      const labsToTry: (TimetableSection | null)[] = linkedLabs.length > 0
+        ? linkedLabs
+        : course.labs.length > 0 ? course.labs : [null];
+      const tutorialsToTry: (TimetableSection | null)[] = linkedTutorials.length > 0
+        ? linkedTutorials
+        : course.tutorials.length > 0 ? course.tutorials : [null];
 
       for (const lab of labsToTry) {
         for (const tutorial of tutorialsToTry) {
-          const restCombos = this.cartesianProduct(rest);
-
-          for (const restCombo of restCombos) {
-            const combo = [lecture];
-            if (lab) combo.push(lab);
-            if (tutorial) combo.push(tutorial);
-            combinations.push([...combo, ...restCombo]);
-          }
+          const option = [lecture, lab, tutorial].filter(
+            (section): section is TimetableSection => section !== null
+          );
+          if (option.length > 0 && !this.hasTimeConflict(option)) options.push(option);
         }
       }
     }
 
-    console.log(`  ✨ Generated ${combinations.length} combinations for ${first.courseCode}\n`);
+    return options;
+  }
+
+  private findValidCombinations(courseOptions: Array<{
+    courseCode: string;
+    options: TimetableSection[][];
+  }>): TimetableSection[][] {
+    const combinations: TimetableSection[][] = [];
+    let exploredNodes = 0;
+
+    const visit = (courseIndex: number, selected: TimetableSection[]) => {
+      if (
+        combinations.length >= ScheduleGenerator.MAX_CANDIDATE_SCHEDULES ||
+        exploredNodes >= ScheduleGenerator.MAX_SEARCH_NODES
+      ) return;
+
+      if (courseIndex === courseOptions.length) {
+        combinations.push(selected);
+        return;
+      }
+
+      for (const option of courseOptions[courseIndex].options) {
+        exploredNodes += 1;
+        if (exploredNodes >= ScheduleGenerator.MAX_SEARCH_NODES) break;
+        const conflicts = option.some(section =>
+          selected.some(existing => this.sectionsOverlap(section, existing))
+        );
+        if (!conflicts) visit(courseIndex + 1, [...selected, ...option]);
+        if (combinations.length >= ScheduleGenerator.MAX_CANDIDATE_SCHEDULES) break;
+      }
+    };
+
+    visit(0, []);
+    this.lastRunStats = {
+      exploredNodes,
+      candidateSchedules: combinations.length,
+      truncated:
+        combinations.length >= ScheduleGenerator.MAX_CANDIDATE_SCHEDULES ||
+        exploredNodes >= ScheduleGenerator.MAX_SEARCH_NODES,
+    };
     return combinations;
   }
 
@@ -229,7 +235,7 @@ export class ScheduleGenerator {
   private scoreSchedule(
   sections: TimetableSection[], 
   preferences: UserPreferences
-): { score: number; breakdown: any } {
+): Pick<ScheduleCombination, 'score' | 'breakdown'> {
   
   const breakdown = {
     morningPenalty: 0,
@@ -365,7 +371,7 @@ export class ScheduleGenerator {
     const match = time.match(/(\d+):(\d+)(AM|PM)/);
     if (!match) return 0;
     
-    let [, hours, minutes, period] = match;
+    const [, hours, minutes, period] = match;
     let h = parseInt(hours);
     const m = parseInt(minutes);
     
