@@ -159,6 +159,56 @@ function peopleFromCell($, cell) {
   return links.length ? links : [cellText(cell)];
 }
 
+function parseCourseDetails($, course) {
+  const table = course.find('.courseattr > .popupdetail > table').first();
+  const rows = table.children('tbody').children('tr').length
+    ? table.children('tbody').children('tr')
+    : table.children('tr');
+  const details = {};
+
+  rows.each((_, rowElement) => {
+    const row = $(rowElement);
+    const heading = cleanText(row.children('th').first().text())
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, ' ')
+      .trim();
+    const value = cellText(row.children('td').first());
+    if (heading && value) details[heading] = value;
+  });
+
+  const prerequisites = details['PRE REQUISITE'] || details.PREREQUISITE || '';
+  const corequisites = details['CO REQUISITE'] || details.COREQUISITE || '';
+  const exclusions = details.EXCLUSION || details.EXCLUSIONS || '';
+  const description = details.DESCRIPTION || '';
+  const attributes = details.ATTRIBUTES || '';
+  const learningOutcomes = details['INTENDED LEARNING OUTCOMES'] || details.INTENDEDLEARNINGOUTCOMES || '';
+  const knownHeadings = new Set([
+    'PRE REQUISITE',
+    'PREREQUISITE',
+    'CO REQUISITE',
+    'COREQUISITE',
+    'EXCLUSION',
+    'EXCLUSIONS',
+    'DESCRIPTION',
+    'ATTRIBUTES',
+    'INTENDED LEARNING OUTCOMES',
+    'INTENDEDLEARNINGOUTCOMES',
+  ]);
+  const additionalDetails = Object.fromEntries(
+    Object.entries(details).filter(([heading]) => !knownHeadings.has(heading))
+  );
+
+  return {
+    ...(description ? { description } : {}),
+    ...(prerequisites ? { prerequisites } : {}),
+    ...(corequisites ? { corequisites } : {}),
+    ...(exclusions ? { exclusions } : {}),
+    ...(attributes ? { attributes } : {}),
+    ...(learningOutcomes ? { learningOutcomes } : {}),
+    ...(Object.keys(additionalDetails).length ? { details: additionalDetails } : {}),
+  };
+}
+
 export function parseSubjectPage(html, expectedDepartment) {
   const $ = load(html);
   const courses = [];
@@ -171,6 +221,7 @@ export function parseSubjectPage(html, expectedDepartment) {
 
     const department = titleMatch[1].toUpperCase();
     const courseCode = `${department} ${titleMatch[2].toUpperCase()}`;
+    const courseDetails = parseCourseDetails($, course);
     const sections = [];
 
     course.find('table.sections tr.mainRow').each((__, rowElement) => {
@@ -205,7 +256,14 @@ export function parseSubjectPage(html, expectedDepartment) {
     });
 
     if (department === expectedDepartment && sections.length > 0) {
-      courses.push({ courseCode, courseTitle, department, credits: Number(titleMatch[3]), sections });
+      courses.push({
+        courseCode,
+        courseTitle,
+        department,
+        credits: Number(titleMatch[3]),
+        ...courseDetails,
+        sections,
+      });
     }
   });
 

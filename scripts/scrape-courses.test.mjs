@@ -4,6 +4,13 @@ import { parseSubjectPage, parseTime } from './scrape-courses.mjs';
 
 const fixture = `
 <div class="course">
+  <div class="courseattr"><div class="popupdetail"><table>
+    <tr><th>PRE-REQUISITE</th><td>FINA 2303 AND ACCT 2010</td></tr>
+    <tr><th>EXCLUSION</th><td>FINA 3103</td></tr>
+    <tr><th>DESCRIPTION</th><td>Capital budgeting, valuation, and financial policy.</td></tr>
+    <tr><th>INTENDED<br>LEARNING<br>OUTCOMES</th><td><table><tr><td>1.</td><td>Evaluate investments.</td></tr></table></td></tr>
+    <tr><th>GRADING</th><td>Letter grade</td></tr>
+  </table></div></div>
   <div class="subject">FINA 3303 - Intermediate Corporate Finance (3 units)</div>
   <table class="sections">
     <tr class="mainRow"><td>L1 (2819)</td><td>Mo 03:00PM - 04:20PM</td><td>Room A</td><td><div class="instructorList"><a>Teacher A</a></div></td><td></td><td>75</td><td>43</td><td>32</td><td>0</td><td></td></tr>
@@ -26,6 +33,16 @@ test('merges continuation meeting rows into their primary section', () => {
   assert.deepEqual(section.parsedTime.days, ['Monday', 'Friday']);
   assert.equal(section.room, 'Room A');
   assert.equal(section.instructor, 'Teacher A');
+});
+
+test('parses course description, prerequisites, exclusions, and learning outcomes', () => {
+  const [course] = parseSubjectPage(fixture, 'FINA');
+
+  assert.equal(course.description, 'Capital budgeting, valuation, and financial policy.');
+  assert.equal(course.prerequisites, 'FINA 2303 AND ACCT 2010');
+  assert.equal(course.exclusions, 'FINA 3103');
+  assert.match(course.learningOutcomes, /Evaluate investments/);
+  assert.equal(course.details.GRADING, 'Letter grade');
 });
 
 test('stops continuation rows at the next primary section', () => {

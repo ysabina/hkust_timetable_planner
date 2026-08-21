@@ -90,6 +90,13 @@ useEffect(() => {
       const courseCodeNoSpaces = course.courseCode.toLowerCase().replace(/\s+/g, '');
       const courseTitleLower = course.courseTitle.toLowerCase();
       const deptLower = course.department.toLowerCase();
+      const academicInfoLower = [
+        course.description,
+        course.prerequisites,
+        course.corequisites,
+        course.exclusions,
+        course.attributes,
+      ].filter(Boolean).join(' ').toLowerCase();
       
       return (
         // Match with or without spaces in course code
@@ -98,7 +105,8 @@ useEffect(() => {
         // Match course title
         courseTitleLower.includes(query) ||
         // Match department
-        deptLower.includes(query)
+        deptLower.includes(query) ||
+        academicInfoLower.includes(query)
       );
     });
   }, [searchQuery, selectedDept, allCourses]);
@@ -338,6 +346,48 @@ useEffect(() => {
 
                         {expandedCourse === course.courseCode && (
                           <div className="px-3 pb-2 space-y-2">
+                            {(course.description || course.prerequisites || course.corequisites || course.exclusions || course.attributes) && (
+                              <div className="rounded-xl border border-[#B75D69]/20 bg-[#1A1423]/45 p-3 text-xs">
+                                {course.description && (
+                                  <div className="mb-3">
+                                    <p className="mb-1 font-semibold uppercase tracking-wide text-[#B75D69]">Course description</p>
+                                    <p className="leading-relaxed text-[#EACDC2]/80">{course.description}</p>
+                                  </div>
+                                )}
+                                <dl className="space-y-2">
+                                  {course.prerequisites && (
+                                    <div>
+                                      <dt className="font-semibold text-amber-300">Prerequisites</dt>
+                                      <dd className="mt-0.5 leading-relaxed text-[#EACDC2]/75">{course.prerequisites}</dd>
+                                    </div>
+                                  )}
+                                  {course.corequisites && (
+                                    <div>
+                                      <dt className="font-semibold text-sky-300">Corequisites</dt>
+                                      <dd className="mt-0.5 leading-relaxed text-[#EACDC2]/75">{course.corequisites}</dd>
+                                    </div>
+                                  )}
+                                  {course.exclusions && (
+                                    <div>
+                                      <dt className="font-semibold text-rose-300">Exclusions</dt>
+                                      <dd className="mt-0.5 leading-relaxed text-[#EACDC2]/75">{course.exclusions}</dd>
+                                    </div>
+                                  )}
+                                  {course.attributes && (
+                                    <div>
+                                      <dt className="font-semibold text-emerald-300">Attributes</dt>
+                                      <dd className="mt-0.5 leading-relaxed text-[#EACDC2]/75">{course.attributes}</dd>
+                                    </div>
+                                  )}
+                                </dl>
+                                {course.learningOutcomes && (
+                                  <details className="mt-3 border-t border-[#B75D69]/15 pt-2">
+                                    <summary className="cursor-pointer font-semibold text-[#F4D7D2]">Intended learning outcomes</summary>
+                                    <p className="mt-2 leading-relaxed text-[#EACDC2]/70">{course.learningOutcomes}</p>
+                                  </details>
+                                )}
+                              </div>
+                            )}
                             {/* Lectures */}
                             {lectureSections.map(section => {
                               const missing = getMissingComponents(course, section);

@@ -30,6 +30,13 @@ export interface Course {
   courseTitle: string;
   department: string;
   credits?: number;
+  description?: string;
+  prerequisites?: string;
+  corequisites?: string;
+  exclusions?: string;
+  attributes?: string;
+  learningOutcomes?: string;
+  details?: Record<string, string>;
   sections: Section[];
 }
 
@@ -54,4 +61,3 @@ export interface ExpandedCourseBlock {
   sectionCode: string;
   day: string;
 }
-

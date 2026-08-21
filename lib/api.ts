@@ -67,7 +67,11 @@ export const courseAPI = {
     return courses.filter(c =>
       c.courseCode.toLowerCase().includes(lowerQuery) ||
       c.courseTitle.toLowerCase().includes(lowerQuery) ||
-      c.department.toLowerCase().includes(lowerQuery)
+      c.department.toLowerCase().includes(lowerQuery) ||
+      c.description?.toLowerCase().includes(lowerQuery) ||
+      c.prerequisites?.toLowerCase().includes(lowerQuery) ||
+      c.corequisites?.toLowerCase().includes(lowerQuery) ||
+      c.exclusions?.toLowerCase().includes(lowerQuery)
     );
   },
 

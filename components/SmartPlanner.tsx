@@ -62,9 +62,16 @@ export default function SmartPlanner({
         const normalizedQuery = normalizeQuery(searchQuery);
         const normalizedCode = normalizeQuery(course.courseCode);
         const normalizedTitle = normalizeQuery(course.courseTitle);
+        const normalizedAcademicInfo = normalizeQuery([
+          course.description,
+          course.prerequisites,
+          course.corequisites,
+          course.exclusions,
+        ].filter(Boolean).join(' '));
         
         return normalizedCode.includes(normalizedQuery) || 
                normalizedTitle.includes(normalizedQuery) ||
+               normalizedAcademicInfo.includes(normalizedQuery) ||
                course.courseCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
                course.courseTitle.toLowerCase().includes(searchQuery.toLowerCase());
       }).slice(0, 20)
@@ -218,6 +225,16 @@ export default function SmartPlanner({
                             <div className="text-xs text-[#EACDC2]/70 truncate">
                               {course.courseTitle}
                             </div>
+                            {course.prerequisites && (
+                              <div className="mt-1 line-clamp-2 text-[11px] text-amber-200/80">
+                                Prerequisites: {course.prerequisites}
+                              </div>
+                            )}
+                            {course.description && (
+                              <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#EACDC2]/55">
+                                {course.description}
+                              </div>
+                            )}
                             <div className="text-[10px] text-[#EACDC2]/50 mt-0.5">
                               {course.department} • {course.credits || 0} credits
                             </div>
