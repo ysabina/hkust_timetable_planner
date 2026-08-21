@@ -1,13 +1,23 @@
 'use client';
-import { useState } from 'react';
-import { X } from 'lucide-react';
-import type { TimetableSection, Conflict } from '../lib/types';
+import { useEffect, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { Info, MoreVertical, RefreshCw, Trash2, X } from 'lucide-react';
+import type { Course, TimetableSection, Conflict } from '../lib/types';
 
 interface WeeklyCalendarProps {
   sections: TimetableSection[];
   onRemoveSection: (courseCode: string) => void;
   conflicts: Conflict[];
   onCourseClick?: (courseCode: string) => void;
+  allCourses: Course[];
+  onSwapSection: (section: TimetableSection) => void;
+}
+
+interface CourseMenuState {
+  x: number;
+  y: number;
+  section: TimetableSection;
 }
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -46,8 +56,17 @@ function getTextColor(bgColor: string): string {
   return lightColors.includes(bgColor) ? 'text-gray-800' : 'text-white';
 }
 
-export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, onCourseClick }: WeeklyCalendarProps) {
+export default function WeeklyCalendar({
+  sections,
+  onRemoveSection,
+  conflicts,
+  onCourseClick,
+  allCourses,
+  onSwapSection,
+}: WeeklyCalendarProps) {
     const [expandedBlock, setExpandedBlock] = useState<string | null>(null);
+    const [courseMenu, setCourseMenu] = useState<CourseMenuState | null>(null);
+    const menuRef = useRef<HTMLDivElement | null>(null);
     const timeToPosition = (time: string): number => {
     const match = time.match(/(\d+):(\d+)(AM|PM)/);
     if (!match) return 0;
@@ -90,6 +109,60 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
   onCourseClick?.(courseCode);
 };
 
+  const openCourseMenu = (x: number, y: number, section: TimetableSection) => {
+    const menuWidth = Math.min(360, window.innerWidth - 16);
+    const estimatedHeight = Math.min(560, window.innerHeight - 16);
+    setCourseMenu({
+      x: Math.max(8, Math.min(x, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(y, window.innerHeight - estimatedHeight - 8)),
+      section,
+    });
+  };
+
+  const handleContextMenu = (event: ReactMouseEvent, section: TimetableSection) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openCourseMenu(event.clientX, event.clientY, section);
+  };
+
+  const handleMoreClick = (event: ReactMouseEvent<HTMLButtonElement>, section: TimetableSection) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    openCourseMenu(rect.right - 340, rect.bottom + 8, section);
+  };
+
+  useEffect(() => {
+    if (!courseMenu) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setCourseMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCourseMenu(null);
+    };
+    const closeOnViewportChange = () => setCourseMenu(null);
+
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('resize', closeOnViewportChange);
+    window.addEventListener('scroll', closeOnViewportChange, true);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('resize', closeOnViewportChange);
+      window.removeEventListener('scroll', closeOnViewportChange, true);
+    };
+  }, [courseMenu]);
+
+  const selectedCourse = courseMenu
+    ? allCourses.find(course => course.courseCode === courseMenu.section.courseCode)
+    : undefined;
+  const alternativeSections = selectedCourse && courseMenu
+    ? selectedCourse.sections.filter(section =>
+        section.sectionType === courseMenu.section.sectionType &&
+        section.sectionCode !== courseMenu.section.sectionCode
+      )
+    : [];
+
 
 
   return (
@@ -97,7 +170,7 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
       <div className="mb-5 flex items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-[#F7EDE8]">Your Timetable</h2>
-          <p className="mt-1 text-sm text-[#EACDC2]/55">Tap a class to inspect it or change its section.</p>
+          <p className="mt-1 text-sm text-[#EACDC2]/55">Right-click a class for details, section swaps, and removal.</p>
         </div>
         {sections.length > 0 && <span className="rounded-full bg-[#372549] px-3 py-1 text-xs text-[#EACDC2]/75">{agendaEntries.length} meetings</span>}
       </div>
@@ -120,7 +193,11 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
                   {dayEntries.map(({ section, startTime, endTime, slotIndex }) => {
                     const isConflicting = hasConflict(section);
                     return (
-                      <div key={`${day}-${section.courseCode}-${section.sectionCode}-${slotIndex}`} className={`flex items-stretch overflow-hidden rounded-xl border ${isConflicting ? 'border-red-400/70 bg-red-500/15' : 'border-[#774C60]/60 bg-[#2A2134]'}`}>
+                      <div
+                        key={`${day}-${section.courseCode}-${section.sectionCode}-${slotIndex}`}
+                        onContextMenu={(event) => handleContextMenu(event, section)}
+                        className={`flex items-stretch overflow-hidden rounded-xl border ${isConflicting ? 'border-red-400/70 bg-red-500/15' : 'border-[#774C60]/60 bg-[#2A2134]'}`}
+                      >
                         <button
                           onClick={() => onCourseClick?.(section.courseCode)}
                           className="min-w-0 flex-1 p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#EACDC2]"
@@ -136,11 +213,11 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
                           {section.room && <p className="mt-2 truncate text-xs text-[#EACDC2]/60">{section.room.split(';')[slotIndex] || section.room.split(';')[0]}</p>}
                         </button>
                         <button
-                          onClick={() => onRemoveSection(section.courseCode)}
-                          className="flex w-12 items-center justify-center border-l border-[#774C60]/40 text-[#EACDC2]/60 transition-colors hover:bg-red-500/15 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-300"
-                          aria-label={`Remove ${section.courseCode} from timetable`}
+                          onClick={(event) => handleMoreClick(event, section)}
+                          className="flex w-12 items-center justify-center border-l border-[#774C60]/40 text-[#EACDC2]/60 transition-colors hover:bg-[#774C60]/20 hover:text-[#F7EDE8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#EACDC2]"
+                          aria-label={`Edit ${section.courseCode} ${section.sectionCode}`}
                         >
-                          <X className="h-4 w-4" />
+                          <MoreVertical className="h-5 w-5" />
                         </button>
                       </div>
                     );
@@ -208,6 +285,7 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
                         <div
                             key={blockId}
                             onClick={() => handleCourseClick(section.courseCode, section.sectionCode, day)}
+                            onContextMenu={(event) => handleContextMenu(event, section)}
                             className={`absolute left-0 right-0 mx-1 ${bgColor} ${textColor} rounded-lg p-2 shadow-lg 
                                     border-2 ${isConflicting ? 'border-red-400 animate-pulse' : 'border-white/20'} 
                                     overflow-hidden group cursor-pointer
@@ -221,14 +299,13 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
                         >
                             <button
                             onClick={(e) => {
-                                e.stopPropagation(); // ✅ CHANGED: Stop click from bubbling to parent
-                                onRemoveSection(section.courseCode);
+                                handleMoreClick(e, section);
                             }}
                             className="absolute top-1 right-1 w-5 h-5 bg-black/40 rounded-full flex items-center 
                                         justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity hover:bg-black/60 z-10"
-                            aria-label={`Remove ${section.courseCode} from timetable`}
+                            aria-label={`Edit ${section.courseCode} ${section.sectionCode}`}
                             >
-                            <X className="w-3 h-3 text-white" />
+                            <MoreVertical className="w-3 h-3 text-white" />
                             </button>
 
                             {/* Always visible info */}
@@ -287,6 +364,102 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
           </div>
         </div>
         </>
+      )}
+      {courseMenu && selectedCourse && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={menuRef}
+          role="dialog"
+          aria-label={`Edit ${courseMenu.section.courseCode} ${courseMenu.section.sectionCode}`}
+          className="fixed z-[200] max-h-[calc(100vh-16px)] w-[min(360px,calc(100vw-16px))] overflow-y-auto rounded-2xl border border-[#774C60] bg-[#211A2B] p-4 text-[#EACDC2] shadow-2xl shadow-black/50"
+          style={{ left: courseMenu.x, top: courseMenu.y }}
+        >
+          <div className="flex items-start justify-between gap-3 border-b border-[#774C60]/35 pb-3">
+            <div className="min-w-0">
+              <p className="font-bold text-[#F7EDE8]">{selectedCourse.courseCode}</p>
+              <p className="mt-0.5 line-clamp-2 text-xs text-[#EACDC2]/65">{selectedCourse.courseTitle}</p>
+            </div>
+            <button
+              onClick={() => setCourseMenu(null)}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#EACDC2]/60 hover:bg-[#372549] hover:text-white"
+              aria-label="Close course menu"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="space-y-3 py-3 text-xs">
+            <div className="flex items-center gap-2 text-[#F4D7D2]">
+              <Info className="h-4 w-4" />
+              <span className="font-semibold">{courseMenu.section.sectionCode}</span>
+              <span className="rounded-full bg-[#372549] px-2 py-0.5">{courseMenu.section.sectionType?.toLowerCase()}</span>
+            </div>
+            <p className="text-[#EACDC2]/75">{courseMenu.section.dateTime || 'Time to be arranged'}</p>
+            {courseMenu.section.room && <p className="text-[#EACDC2]/60">{courseMenu.section.room}</p>}
+            {courseMenu.section.instructor && <p className="text-[#EACDC2]/60">Instructor: {courseMenu.section.instructor}</p>}
+            {courseMenu.section.quota && (
+              <p className="text-[#EACDC2]/60">
+                {courseMenu.section.enrolled}/{courseMenu.section.quota} enrolled · {courseMenu.section.available} available
+              </p>
+            )}
+            {selectedCourse.prerequisites && (
+              <div className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-2.5">
+                <p className="font-semibold text-amber-200">Prerequisites</p>
+                <p className="mt-1 leading-relaxed text-amber-100/75">{selectedCourse.prerequisites}</p>
+              </div>
+            )}
+            {selectedCourse.description && (
+              <div>
+                <p className="font-semibold text-[#F4D7D2]">Description</p>
+                <p className="mt-1 max-h-28 overflow-y-auto leading-relaxed text-[#EACDC2]/65">{selectedCourse.description}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-[#774C60]/35 pt-3">
+            <div className="mb-2 flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 text-[#B75D69]" />
+              <p className="text-xs font-semibold text-[#F4D7D2]">Swap {courseMenu.section.sectionType?.toLowerCase()} section</p>
+            </div>
+            {alternativeSections.length > 0 ? (
+              <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                {alternativeSections.map(section => (
+                  <button
+                    key={section.sectionCode}
+                    onClick={() => {
+                      onSwapSection({
+                        ...section,
+                        courseCode: selectedCourse.courseCode,
+                        courseTitle: selectedCourse.courseTitle,
+                        credits: selectedCourse.credits,
+                        color: courseMenu.section.color,
+                      });
+                      setCourseMenu(null);
+                    }}
+                    className="w-full rounded-lg border border-[#774C60]/35 bg-[#2A2134] p-2.5 text-left transition-colors hover:border-[#B75D69] hover:bg-[#372549]"
+                  >
+                    <span className="font-semibold text-[#F7EDE8]">{section.sectionCode}</span>
+                    <span className="ml-2 text-[11px] text-emerald-300">{section.available} available</span>
+                    <span className="mt-1 block text-[11px] leading-relaxed text-[#EACDC2]/60">{section.dateTime || 'Time to be arranged'}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-lg bg-[#1A1423]/45 p-2.5 text-xs text-[#EACDC2]/50">No alternative sections are available.</p>
+            )}
+          </div>
+
+          <button
+            onClick={() => {
+              onRemoveSection(courseMenu.section.courseCode);
+              setCourseMenu(null);
+            }}
+            className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-400/25 bg-red-500/10 text-sm font-semibold text-red-200 transition-colors hover:bg-red-500/20"
+          >
+            <Trash2 className="h-4 w-4" />
+            Remove course
+          </button>
+        </div>,
+        document.body
       )}
     </div>
   );

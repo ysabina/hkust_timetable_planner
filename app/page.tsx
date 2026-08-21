@@ -348,7 +348,9 @@ export default function Home() {
             
             <WeeklyCalendar
               sections={displaySections}
+              allCourses={allCourses}
               onRemoveSection={handleRemoveCourse}
+              onSwapSection={handleSelectSection}
               conflicts={conflicts}
               onCourseClick={(courseCode) => setFocusedCourse({ code: courseCode, timestamp: Date.now() })}
             />
