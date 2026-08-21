@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Sparkles, Sliders, Loader2, X, Search } from 'lucide-react';
 import type { Course, TimetableSection } from '../lib/types';
 import type { UserPreferences, ScheduleCombination } from '../lib/preferences';
@@ -12,6 +12,8 @@ interface SmartPlannerProps {
   onApplySchedule: (sections: TimetableSection[]) => void;
   onClearPreview: () => void;
   isPreviewMode: boolean;
+  selectedCourses: string[];
+  onSelectedCoursesChange: (courses: string[]) => void;
 }
 
 const TAG_COLORS = [
@@ -32,25 +34,10 @@ export default function SmartPlanner({
   onPreviewSchedule, 
   onApplySchedule,
   onClearPreview,
-  isPreviewMode
+  isPreviewMode,
+  selectedCourses,
+  onSelectedCoursesChange,
 }: SmartPlannerProps) {
-  // ✅ FIX: Initialize directly from localStorage using lazy initializer
-  const [selectedCourses, setSelectedCourses] = useState<string[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('smart-planner-courses');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          console.log('🎯 INITIAL LOAD from localStorage:', parsed);
-          return parsed;
-        }
-      } catch (error) {
-        console.error('❌ Error loading from localStorage:', error);
-      }
-    }
-    return [];
-  });
-
   const [searchQuery, setSearchQuery] = useState('');
   const [preferences, setPreferences] = useState<UserPreferences>({
     weights: {
@@ -64,18 +51,6 @@ export default function SmartPlanner({
   });
   const [results, setResults] = useState<ScheduleCombination[]>([]);
   const [loading, setLoading] = useState(false);
-
-  // ✅ Save to localStorage whenever selectedCourses changes
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        console.log('💾 SAVING to localStorage:', selectedCourses);
-        localStorage.setItem('smart-planner-courses', JSON.stringify(selectedCourses));
-      } catch (error) {
-        console.error('❌ Error saving to localStorage:', error);
-      }
-    }
-  }, [selectedCourses]);
 
   // Filter courses based on search (works with or without space)
   const normalizeQuery = (query: string) => {
@@ -97,21 +72,19 @@ export default function SmartPlanner({
 
   const addCourse = (courseCode: string) => {
     if (!selectedCourses.includes(courseCode)) {
-      setSelectedCourses(prev => [...prev, courseCode]);
+      onSelectedCoursesChange([...selectedCourses, courseCode]);
       setSearchQuery('');
     }
   };
 
   const removeCourse = (courseCode: string) => {
-    setSelectedCourses(prev => prev.filter(c => c !== courseCode));
+    onSelectedCoursesChange(selectedCourses.filter(c => c !== courseCode));
+    setResults([]);
   };
 
   const clearSelectedCourses = () => {
-    setSelectedCourses([]);
+    onSelectedCoursesChange([]);
     setResults([]);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('smart-planner-courses');
-    }
   };
 
   const getTagColor = (index: number) => {
@@ -141,7 +114,7 @@ export default function SmartPlanner({
           alert('No valid schedules found. Try adjusting your preferences or course selection.');
         }
         
-        setResults(combinations.slice(0, 10));
+        setResults(combinations.slice(0, 3));
       } catch (error) {
         console.error('Error generating schedules:', error);
         alert('Error generating schedules. Please try with fewer courses.');
@@ -152,12 +125,18 @@ export default function SmartPlanner({
   };
 
   return (
-    <div className="h-full flex flex-col bg-gradient-to-br from-[#372549] to-[#774C60] rounded-lg shadow-xl overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-[#4A3856] bg-[#2A2134] shadow-xl">
+      <div className="flex-1 overflow-visible p-4 sm:p-6 lg:overflow-y-auto">
         <h2 className="text-2xl font-bold text-[#EACDC2] mb-4 flex items-center gap-2">
           <Sparkles className="w-6 h-6" />
           Automated Planning
         </h2>
+
+        <ol className="mb-5 grid grid-cols-3 gap-2 text-center text-[11px] font-semibold text-[#EACDC2]/65" aria-label="Planning steps">
+          <li className="rounded-lg bg-[#B75D69]/20 px-2 py-2 text-[#F4D7D2]">1. Courses</li>
+          <li className="rounded-lg bg-[#372549] px-2 py-2">2. Preferences</li>
+          <li className="rounded-lg bg-[#372549] px-2 py-2">3. Compare</li>
+        </ol>
 
         {/* Course Selection */}
         <div className="mb-4">
@@ -198,6 +177,7 @@ export default function SmartPlanner({
                   {courseCode}
                   <button
                     onClick={() => removeCourse(courseCode)}
+                    aria-label={`Remove ${courseCode} from planner`}
                     className="hover:bg-white/20 rounded-full p-0.5 transition-colors"
                   >
                     <X className="w-3 h-3" />
@@ -266,6 +246,7 @@ export default function SmartPlanner({
                 <span className="text-xs text-[#B75D69] font-semibold">{preferences.weights.noMorning}/10</span>
               </div>
               <input
+                aria-label="Avoid morning classes priority"
                 type="range"
                 min="0"
                 max="10"
@@ -284,6 +265,7 @@ export default function SmartPlanner({
                 <span className="text-xs text-[#B75D69] font-semibold">{preferences.weights.noEvening}/10</span>
               </div>
               <input
+                aria-label="Avoid evening classes priority"
                 type="range"
                 min="0"
                 max="10"
@@ -302,6 +284,7 @@ export default function SmartPlanner({
                 <span className="text-xs text-[#B75D69] font-semibold">{preferences.weights.noFriday}/10</span>
               </div>
               <input
+                aria-label="Avoid Friday classes priority"
                 type="range"
                 min="0"
                 max="10"
@@ -320,6 +303,7 @@ export default function SmartPlanner({
                 <span className="text-xs text-[#B75D69] font-semibold">{preferences.weights.daysOff}/10</span>
               </div>
               <input
+                aria-label="Maximize days off priority"
                 type="range"
                 min="0"
                 max="10"
@@ -338,6 +322,7 @@ export default function SmartPlanner({
                 <span className="text-xs text-[#B75D69] font-semibold">{preferences.weights.minimizeGaps}/10</span>
               </div>
               <input
+                aria-label="Minimize gaps priority"
                 type="range"
                 min="0"
                 max="10"
@@ -356,6 +341,7 @@ export default function SmartPlanner({
                 <span className="text-xs text-[#B75D69] font-semibold">{preferences.weights.compact}/10</span>
               </div>
               <input
+                aria-label="Compact schedule priority"
                 type="range"
                 min="0"
                 max="10"

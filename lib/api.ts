@@ -1,4 +1,31 @@
-import type { Course, Conflict } from './types';
+import type { Course, TimetableSection } from './types';
+
+interface CourseRefreshResponse {
+  courses: Course[];
+  refreshedAt: string;
+}
+
+export function mergeRefreshedSections(
+  sections: TimetableSection[],
+  courses: Course[]
+): TimetableSection[] {
+  const courseMap = new Map(courses.map(course => [course.courseCode, course]));
+
+  return sections.map(section => {
+    const course = courseMap.get(section.courseCode);
+    const refreshed = course?.sections.find(candidate => candidate.sectionCode === section.sectionCode);
+    if (!course || !refreshed) return section;
+
+    return {
+      ...section,
+      ...refreshed,
+      courseCode: section.courseCode,
+      courseTitle: course.courseTitle,
+      credits: course.credits,
+      color: section.color,
+    };
+  });
+}
 
 export const courseAPI = {
   // Get all courses from static JSON
@@ -8,6 +35,16 @@ export const courseAPI = {
       throw new Error('Failed to fetch courses');
     }
     return response.json();
+  },
+
+  // Refresh directly from HKUST through the server-side scraper.
+  refreshCourses: async (): Promise<CourseRefreshResponse> => {
+    const response = await fetch('/api/courses', { cache: 'no-store' });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || 'Failed to refresh courses');
+    }
+    return payload;
   },
 
   // Get all departments (derived from courses)

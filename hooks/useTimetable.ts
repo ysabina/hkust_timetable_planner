@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { TimetableSection, Conflict } from '../lib/types';
+import type { Course, TimetableSection, Conflict } from '../lib/types';
+import { mergeRefreshedSections } from '../lib/api';
 
 const COLORS = [
   'bg-[#F75590]', // Wild Strawberry (Pink)
@@ -19,48 +20,69 @@ const COLORS = [
 ];
 const STORAGE_VERSION = '1.0';
 
+function parseTime(time: string): number {
+  const match = time.match(/(\d+):(\d+)(AM|PM)/);
+  if (!match) return 0;
+
+  const [, hours, minutes, period] = match;
+  let h = parseInt(hours);
+  const m = parseInt(minutes);
+
+  if (period === 'PM' && h !== 12) h += 12;
+  if (period === 'AM' && h === 12) h = 0;
+
+  return h * 60 + m;
+}
+
 export function useTimetable() {
   const [selectedSections, setSelectedSections] = useState<TimetableSection[]>([]);
   
   // ✅ USE REF to track color assignments permanently
   const courseColorsRef = useRef<Map<string, string>>(new Map());
+  const storageLoadedRef = useRef(false);
 
   // Load data from localStorage on mount
   useEffect(() => {
+    let restoreTimer: ReturnType<typeof setTimeout> | undefined;
     try {
         const version = localStorage.getItem('timetable-version');
     
         // Clear if version mismatch
         if (version !== STORAGE_VERSION) {
-        localStorage.clear();
+        localStorage.removeItem('timetable-sections');
+        localStorage.removeItem('timetable-colors');
+        localStorage.removeItem('smart-planner-courses');
         localStorage.setItem('timetable-version', STORAGE_VERSION);
+        storageLoadedRef.current = true;
         return;
         }
 
         const savedSections = localStorage.getItem('timetable-sections');
         const savedColors = localStorage.getItem('timetable-colors');
       
-
-
-      if (savedSections) {
-        const sections = JSON.parse(savedSections);
-        setSelectedSections(sections);
-        console.log('📂 LOADED sections from localStorage:', sections.length);
-      }
-
       if (savedColors) {
         const colorsArray = JSON.parse(savedColors);
         courseColorsRef.current = new Map(colorsArray);
         console.log('🎨 LOADED color assignments from localStorage');
 
       }
+      const restoredSections = savedSections ? JSON.parse(savedSections) : [];
+      restoreTimer = setTimeout(() => {
+        storageLoadedRef.current = true;
+        setSelectedSections(restoredSections);
+      }, 0);
     } catch (error) {
       console.error('Error loading from localStorage:', error);
+      storageLoadedRef.current = true;
     }
+    return () => {
+      if (restoreTimer) clearTimeout(restoreTimer);
+    };
   }, []); // Empty array = run only once on mount
 
   // Save to localStorage whenever data changes
   useEffect(() => {
+    if (!storageLoadedRef.current) return;
     try {
       localStorage.setItem('timetable-sections', JSON.stringify(selectedSections));
       
@@ -115,20 +137,6 @@ export function useTimetable() {
 
     return conflicts;
   }, []);
-
-  const parseTime = (time: string): number => {
-    const match = time.match(/(\d+):(\d+)(AM|PM)/);
-    if (!match) return 0;
-
-    let [, hours, minutes, period] = match;
-    let h = parseInt(hours);
-    const m = parseInt(minutes);
-
-    if (period === 'PM' && h !== 12) h += 12;
-    if (period === 'AM' && h === 12) h = 0;
-
-    return h * 60 + m;
-  };
 
   const addSection = useCallback((section: TimetableSection) => {
     setSelectedSections(prev => {
@@ -193,6 +201,10 @@ export function useTimetable() {
     console.log('🧹 CLEARED ALL - color assignments reset');
   }, []);
 
+  const refreshSections = useCallback((courses: Course[]) => {
+    setSelectedSections(previous => mergeRefreshedSections(previous, courses));
+  }, []);
+
   const conflicts = checkTimeConflicts(selectedSections);
 
   return {
@@ -201,6 +213,7 @@ export function useTimetable() {
     addSection,
     removeSection,
     switchSection,
+    refreshSections,
     clearAll,
   };
 }

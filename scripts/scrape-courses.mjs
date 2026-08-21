@@ -226,27 +226,41 @@ async function mapConcurrent(items, limit, work) {
   return results;
 }
 
-async function main() {
-  const indexUrl = `${BASE_URL}/${term}/subject/ACCT`;
-  console.log(`Discovering subjects from ${indexUrl}`);
+export async function scrapeTermCourses(scrapeTerm, options = {}) {
+  const scrapeConcurrency = options.concurrency ?? 6;
+  const logger = options.logger ?? (() => {});
+  if (!/^\d{4}$/.test(scrapeTerm)) throw new Error(`Invalid term code: ${scrapeTerm}`);
+  if (!Number.isInteger(scrapeConcurrency) || scrapeConcurrency < 1 || scrapeConcurrency > 12) {
+    throw new Error('Concurrency must be an integer between 1 and 12');
+  }
+
+  const indexUrl = `${BASE_URL}/${scrapeTerm}/subject/ACCT`;
+  logger(`Discovering subjects from ${indexUrl}`);
   const indexHtml = await fetchWithRetry(indexUrl);
   const indexPage = load(indexHtml);
   const departments = [...new Set(indexPage('#subjectItems a[href*="/subject/"]').map((_, link) => cleanText(indexPage(link).text())).get())];
 
-  if (departments.length === 0) throw new Error(`No subjects found for term ${term}`);
-  console.log(`Found ${departments.length} subjects. Fetching with concurrency ${concurrency}...`);
+  if (departments.length === 0) throw new Error(`No subjects found for term ${scrapeTerm}`);
+  logger(`Found ${departments.length} subjects. Fetching with concurrency ${scrapeConcurrency}...`);
 
-  const pages = await mapConcurrent(departments, concurrency, async (department, index) => {
-    const url = `${BASE_URL}/${term}/subject/${department}`;
+  const pages = await mapConcurrent(departments, scrapeConcurrency, async (department, index) => {
+    const url = `${BASE_URL}/${scrapeTerm}/subject/${department}`;
     const html = department === 'ACCT' ? indexHtml : await fetchWithRetry(url);
     const courses = parseSubjectPage(html, department);
-    console.log(`[${index + 1}/${departments.length}] ${department}: ${courses.length} courses`);
+    logger(`[${index + 1}/${departments.length}] ${department}: ${courses.length} courses`);
     return courses;
   });
 
   const courses = pages.flat().sort((a, b) => a.courseCode.localeCompare(b.courseCode));
   const sectionCount = courses.reduce((total, course) => total + course.sections.length, 0);
   if (courses.length === 0 || sectionCount === 0) throw new Error('Scrape produced no usable course data');
+
+  return courses;
+}
+
+async function main() {
+  const courses = await scrapeTermCourses(term, { concurrency, logger: console.log });
+  const sectionCount = courses.reduce((total, course) => total + course.sections.length, 0);
 
   await mkdir(dirname(output), { recursive: true });
   await writeFile(output, `${JSON.stringify(courses, null, 2)}\n`);

@@ -1,22 +1,22 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Plus, ChevronDown, ChevronRight, Loader2, BookOpen, AlertTriangle } from 'lucide-react';
+import { Search, Plus, ChevronDown, ChevronRight, Loader2, BookOpen, AlertTriangle, Compass } from 'lucide-react';
 import type { Course, TimetableSection, Section } from '../lib/types';
-import { courseAPI } from '../lib/api';
 
 interface CourseSearchProps {
+  allCourses: Course[];
+  loading: boolean;
   onSelectSection: (section: TimetableSection) => void;
   selectedSections: TimetableSection[];
   focusedCourse?: { code: string; timestamp: number } | null;
 }
 
-export default function CourseSearch({ onSelectSection, selectedSections,focusedCourse }: CourseSearchProps) {
+export default function CourseSearch({ allCourses, loading, onSelectSection, selectedSections, focusedCourse }: CourseSearchProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [allCourses, setAllCourses] = useState<Course[]>([]);
+  const [selectedDept, setSelectedDept] = useState('');
   const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
   const [expandedDept, setExpandedDept] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
 
   // REFS - one for each course card
   const courseRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
@@ -25,20 +25,15 @@ export default function CourseSearch({ onSelectSection, selectedSections,focused
 // Auto-scroll when focusedCourse changes
 useEffect(() => {
   if (!focusedCourse) return;
-
-  // ✅ STEP 1: Find the department and expand it
-  const courseDept = allCourses.find(c => c.courseCode === focusedCourse.code)?.department;
-  
-  if (courseDept) {
-    // Expand the department first
-    setExpandedDept(prev => new Set([...prev, courseDept]));
-  }
-
-  // ✅ STEP 2: Expand the course
-  setExpandedCourse(focusedCourse.code);
-
-  // ✅ STEP 3: Wait for React to render, THEN scroll
-  setTimeout(() => {
+  let scrollTimer: ReturnType<typeof setTimeout> | undefined;
+  const focusTimer = setTimeout(() => {
+    const courseDept = allCourses.find(c => c.courseCode === focusedCourse.code)?.department;
+    if (courseDept) {
+      setExpandedDept(prev => new Set([...prev, courseDept]));
+      setSelectedDept(courseDept);
+    }
+    setExpandedCourse(focusedCourse.code);
+    scrollTimer = setTimeout(() => {
     const element = courseRefs.current[focusedCourse.code];
     
     if (!element) {
@@ -68,10 +63,13 @@ useEffect(() => {
       highlightTimeoutRef.current = null;
     }, 2000);
 
-  }, 300); // ✅ INCREASED from 100ms to 300ms to allow React to render
+    }, 300);
+  }, 0);
 
   // Cleanup
   return () => {
+    clearTimeout(focusTimer);
+    if (scrollTimer) clearTimeout(scrollTimer);
     if (highlightTimeoutRef.current) {
       clearTimeout(highlightTimeoutRef.current);
       highlightTimeoutRef.current = null;
@@ -79,27 +77,9 @@ useEffect(() => {
   };
 }, [focusedCourse, allCourses]); 
 
-
-
-
-  useEffect(() => {
-    const fetchAllCourses = async () => {
-      try {
-        setLoading(true);
-        const courses = await courseAPI.getAllCourses();
-        setAllCourses(courses);
-      } catch (error) {
-        console.error('Error fetching courses:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchAllCourses();
-  }, []);
-
   const filteredCourses = useMemo(() => {
     if (!searchQuery.trim()) {
-      return allCourses;
+      return selectedDept ? allCourses.filter(course => course.department === selectedDept) : [];
     }
     
     const query = searchQuery.toLowerCase();
@@ -121,7 +101,17 @@ useEffect(() => {
         deptLower.includes(query)
       );
     });
-  }, [searchQuery, allCourses]);
+  }, [searchQuery, selectedDept, allCourses]);
+
+  const departments = useMemo(() => {
+    const counts = new Map<string, number>();
+    allCourses.forEach(course => counts.set(course.department, (counts.get(course.department) || 0) + 1));
+    return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [allCourses]);
+
+  const popularDepartments = useMemo(() => [...departments]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6), [departments]);
 
   const coursesByDepartment = useMemo(() => {
     const grouped: { [dept: string]: Course[] } = {};
@@ -210,34 +200,52 @@ useEffect(() => {
     onSelectSection(timetableSection);
   };
 
-  useEffect(() => {
-  if (searchQuery.trim() && Object.keys(coursesByDepartment).length > 0 && expandedDept.size === 0) {
-    const firstDept = Object.keys(coursesByDepartment)[0];
-    setExpandedDept(new Set([firstDept]));
-  }
-}, [searchQuery, coursesByDepartment, expandedDept.size]);
+  const isDepartmentExpanded = (department: string) => expandedDept.has(department) || (
+    Boolean(searchQuery.trim()) && Object.keys(coursesByDepartment).length === 1
+  );
 
   return (
-    <div className="bg-gradient-to-br from-[#372549] to-[#774C60] rounded-lg shadow-xl p-6 h-full flex flex-col">
+    <div className="flex h-full flex-col rounded-2xl border border-[#4A3856] bg-[#2A2134] p-4 shadow-xl sm:p-6">
       <h2 className="text-2xl font-bold text-[#EACDC2] mb-4 flex items-center gap-2">
         <Search className="w-6 h-6" />
         Course Search
       </h2>
 
-      <div className="relative mb-4">
+      <div className="relative mb-3">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#EACDC2]/60 w-5 h-5" />
         <input
           type="text"
           placeholder="Search by course code, title, or department..."
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            if (e.target.value) setSelectedDept('');
+          }}
           className="w-full pl-10 pr-4 py-2.5 bg-[#1A1423]/40 border border-[#B75D69]/30 rounded-lg 
                      text-[#EACDC2] placeholder-[#EACDC2]/50 focus:outline-none focus:ring-2 
                      focus:ring-[#B75D69] focus:border-transparent transition-all"
         />
       </div>
 
-      {searchQuery && (
+      <label className="mb-4 block text-xs font-medium text-[#EACDC2]/70">
+        Browse a department
+        <select
+          value={selectedDept}
+          onChange={(event) => {
+            setSelectedDept(event.target.value);
+            setSearchQuery('');
+            setExpandedDept(event.target.value ? new Set([event.target.value]) : new Set());
+          }}
+          className="mt-1.5 min-h-11 w-full rounded-lg border border-[#B75D69]/30 bg-[#1A1423] px-3 text-sm text-[#EACDC2] outline-none focus:ring-2 focus:ring-[#B75D69]"
+        >
+          <option value="">Choose a department…</option>
+          {departments.map(([department, count]) => (
+            <option key={department} value={department}>{department} ({count})</option>
+          ))}
+        </select>
+      </label>
+
+      {(searchQuery || selectedDept) && (
         <div className="mb-3 px-2">
           <p className="text-sm text-[#EACDC2]/70">
             Found {filteredCourses.length} course{filteredCourses.length !== 1 ? 's' : ''} 
@@ -246,27 +254,47 @@ useEffect(() => {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+      <div className="flex-1 space-y-3 pr-0 lg:overflow-y-auto lg:pr-2">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 text-[#B75D69] animate-spin" />
           </div>
         ) : Object.keys(coursesByDepartment).length === 0 ? (
-          <div className="text-center py-12">
-            <BookOpen className="w-12 h-12 text-[#EACDC2]/30 mx-auto mb-3" />
-            <p className="text-[#EACDC2]/60">
-              {searchQuery ? 'No courses found matching your search' : 'No courses available'}
+          <div className="rounded-xl border border-[#B75D69]/15 bg-[#1A1423]/35 px-4 py-8 text-center">
+            {searchQuery ? <BookOpen className="mx-auto mb-3 h-10 w-10 text-[#EACDC2]/30" /> : <Compass className="mx-auto mb-3 h-10 w-10 text-[#B75D69]" />}
+            <p className="font-medium text-[#EACDC2]">
+              {searchQuery ? 'No matching courses' : 'Find your first course'}
             </p>
+            <p className="mx-auto mt-1 max-w-xs text-sm text-[#EACDC2]/55">
+              {searchQuery ? 'Try a course code, title, or another department.' : 'Search by code or title, or start with a popular department.'}
+            </p>
+            {!searchQuery && !loading && (
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                {popularDepartments.map(([department, count]) => (
+                  <button
+                    key={department}
+                    onClick={() => {
+                      setSelectedDept(department);
+                      setExpandedDept(new Set([department]));
+                    }}
+                    className="min-h-10 rounded-full border border-[#774C60] bg-[#372549] px-3 text-xs font-semibold text-[#F4D7D2] transition-colors hover:bg-[#4A3856]"
+                  >
+                    {department} · {count}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           Object.entries(coursesByDepartment).map(([dept, courses]) => (
             <div key={dept} className="bg-[#1A1423]/20 rounded-lg overflow-hidden border border-[#B75D69]/20">
               <button
                 onClick={() => toggleDepartment(dept)}
+                aria-expanded={isDepartmentExpanded(dept)}
                 className="w-full px-4 py-3 flex items-center justify-between bg-[#1A1423]/40 hover:bg-[#1A1423]/60 transition-colors"
               >
                 <div className="flex items-center gap-2">
-                  {expandedDept.has(dept) ? (
+                  {isDepartmentExpanded(dept) ? (
                     <ChevronDown className="w-5 h-5 text-[#B75D69]" />
                   ) : (
                     <ChevronRight className="w-5 h-5 text-[#B75D69]" />
@@ -276,7 +304,7 @@ useEffect(() => {
                 </div>
               </button>
 
-              {expandedDept.has(dept) && (
+              {isDepartmentExpanded(dept) && (
                 <div className="p-2 space-y-2">
                   {courses.map(course => {
                     const lectureSections = course.sections.filter(s => s.sectionType === 'LECTURE');
@@ -288,6 +316,7 @@ useEffect(() => {
                         className="bg-[#372549]/40 rounded-lg overflow-hidden border border-[#B75D69]/20">
                         <button
                           onClick={() => toggleCourse(course.courseCode)}
+                          aria-expanded={expandedCourse === course.courseCode}
                           className="w-full px-3 py-2.5 flex items-start gap-2 hover:bg-[#B75D69]/10 transition-colors text-left"
                         >
                           {expandedCourse === course.courseCode ? (
@@ -329,6 +358,7 @@ useEffect(() => {
                                       
                                       <button
                                         onClick={() => handleAddSection(course, section)}
+                                        aria-label={`${isLectureAdded ? 'Selected' : isSwitch ? 'Switch to' : 'Add'} ${course.courseCode} ${section.sectionCode}`}
                                         className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-all ${
                                           isLectureAdded
                                             ? 'bg-green-600/20 text-green-300 border border-green-500/30 cursor-default'
@@ -400,6 +430,7 @@ useEffect(() => {
                                           
                                           <button
                                             onClick={() => handleAddSection(course, section)}
+                                            aria-label={`${isLabAdded ? 'Selected' : isSwitch ? 'Switch to' : 'Add'} ${course.courseCode} ${section.sectionCode}`}
                                             className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-all ${
                                               isLabAdded
                                                 ? 'bg-green-600/20 text-green-300 border border-green-500/30 cursor-default'
@@ -448,6 +479,7 @@ useEffect(() => {
                                           
                                           <button
                                             onClick={() => handleAddSection(course, section)}
+                                            aria-label={`${isTutorialAdded ? 'Selected' : isSwitch ? 'Switch to' : 'Add'} ${course.courseCode} ${section.sectionCode}`}
                                             className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-all ${
                                               isTutorialAdded
                                                 ? 'bg-green-600/20 text-green-300 border border-green-500/30 cursor-default'

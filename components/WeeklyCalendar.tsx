@@ -52,7 +52,7 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
     const match = time.match(/(\d+):(\d+)(AM|PM)/);
     if (!match) return 0;
     
-    let [, hoursStr, minutesStr, period] = match;
+    const [, hoursStr, minutesStr, period] = match;
     let hours = parseInt(hoursStr);
     const minutes = parseInt(minutesStr);
     
@@ -68,6 +68,18 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
       (c.course2 === section.courseCode && c.section2 === section.sectionCode)
     );
   };
+  const agendaEntries = sections.flatMap(section => getTimeslots(section).flatMap((timeslot, slotIndex) =>
+    timeslot.days.map(day => ({
+      day,
+      section,
+      slotIndex,
+      startTime: timeslot.startTime,
+      endTime: timeslot.endTime,
+    }))
+  )).sort((a, b) => {
+    const dayDifference = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
+    return dayDifference || timeToPosition(a.startTime) - timeToPosition(b.startTime);
+  });
   const handleCourseClick = (courseCode: string, sectionCode: string, day: string) => {
   const blockId = `${courseCode}-${sectionCode}-${day}`;
   
@@ -81,17 +93,65 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
 
 
   return (
-    <div className="h-full overflow-auto">
-      <h2 className="text-2xl font-bold text-[#EACDC2] mb-6">Your Timetable</h2>
+    <div className="h-full overflow-visible lg:overflow-auto">
+      <div className="mb-5 flex items-end justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-[#F7EDE8]">Your Timetable</h2>
+          <p className="mt-1 text-sm text-[#EACDC2]/55">Tap a class to inspect it or change its section.</p>
+        </div>
+        {sections.length > 0 && <span className="rounded-full bg-[#372549] px-3 py-1 text-xs text-[#EACDC2]/75">{agendaEntries.length} meetings</span>}
+      </div>
       
       {sections.length === 0 ? (
-        <div className="bg-[#372549]/40 rounded-lg p-12 text-center border border-[#B75D69]/20">
-          <p className="text-[#EACDC2]/60 text-lg">
-            No courses selected yet. Add courses from the search panel to build your timetable!
-          </p>
+        <div className="rounded-xl border border-dashed border-[#B75D69]/35 bg-[#372549]/25 px-5 py-12 text-center">
+          <p className="text-lg font-semibold text-[#F7EDE8]">Your week is ready to be built</p>
+          <p className="mx-auto mt-2 max-w-md text-sm text-[#EACDC2]/60">Search for a course, choose a section, and every meeting will appear here automatically.</p>
         </div>
       ) : (
-        <div className="bg-[#1A1423]/40 rounded-lg p-4 overflow-x-auto border border-[#B75D69]/20">
+        <>
+        <div className="space-y-5 md:hidden" aria-label="Mobile timetable agenda">
+          {DAYS.map(day => {
+            const dayEntries = agendaEntries.filter(entry => entry.day === day);
+            if (dayEntries.length === 0) return null;
+            return (
+              <section key={day} aria-labelledby={`agenda-${day}`}>
+                <h3 id={`agenda-${day}`} className="mb-2 text-sm font-semibold text-[#F4D7D2]">{day}</h3>
+                <div className="space-y-2">
+                  {dayEntries.map(({ section, startTime, endTime, slotIndex }) => {
+                    const isConflicting = hasConflict(section);
+                    return (
+                      <div key={`${day}-${section.courseCode}-${section.sectionCode}-${slotIndex}`} className={`flex items-stretch overflow-hidden rounded-xl border ${isConflicting ? 'border-red-400/70 bg-red-500/15' : 'border-[#774C60]/60 bg-[#2A2134]'}`}>
+                        <button
+                          onClick={() => onCourseClick?.(section.courseCode)}
+                          className="min-w-0 flex-1 p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#EACDC2]"
+                          aria-label={`View ${section.courseCode} ${section.sectionCode} details`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-[#F7EDE8]">{section.courseCode} · {section.sectionCode}</p>
+                              <p className="mt-1 text-sm text-[#F4D7D2]">{startTime}–{endTime}</p>
+                            </div>
+                            {isConflicting && <span className="rounded-full bg-red-500/20 px-2 py-1 text-[10px] font-bold text-red-200">CONFLICT</span>}
+                          </div>
+                          {section.room && <p className="mt-2 truncate text-xs text-[#EACDC2]/60">{section.room.split(';')[slotIndex] || section.room.split(';')[0]}</p>}
+                        </button>
+                        <button
+                          onClick={() => onRemoveSection(section.courseCode)}
+                          className="flex w-12 items-center justify-center border-l border-[#774C60]/40 text-[#EACDC2]/60 transition-colors hover:bg-red-500/15 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-300"
+                          aria-label={`Remove ${section.courseCode} from timetable`}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+
+        <div className="hidden rounded-lg border border-[#B75D69]/20 bg-[#1A1423]/40 p-4 md:block md:overflow-x-auto">
           <div className="grid grid-cols-[60px_repeat(5,1fr)] gap-2 min-w-[700px]">
             {/* Header row with day names */}
             <div></div>
@@ -165,7 +225,8 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
                                 onRemoveSection(section.courseCode);
                             }}
                             className="absolute top-1 right-1 w-5 h-5 bg-black/40 rounded-full flex items-center 
-                                        justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60 z-10"
+                                        justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity hover:bg-black/60 z-10"
+                            aria-label={`Remove ${section.courseCode} from timetable`}
                             >
                             <X className="w-3 h-3 text-white" />
                             </button>
@@ -225,6 +286,7 @@ export default function WeeklyCalendar({ sections, onRemoveSection, conflicts, o
             </div>
           </div>
         </div>
+        </>
       )}
     </div>
   );
