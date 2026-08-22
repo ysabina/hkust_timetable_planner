@@ -110,11 +110,22 @@ export default function WeeklyCalendar({
 };
 
   const openCourseMenu = (x: number, y: number, section: TimetableSection) => {
-    const menuWidth = Math.min(360, window.innerWidth - 16);
-    const estimatedHeight = Math.min(560, window.innerHeight - 16);
+    const isCompact = window.innerWidth < 640;
+    const menuWidth = isCompact
+      ? window.innerWidth - 16
+      : Math.min(720, window.innerWidth - 32);
+    const menuHeight = isCompact
+      ? Math.min(Math.round(window.innerHeight * 0.82), window.innerHeight - 16)
+      : Math.min(620, window.innerHeight - 32);
+    const preferredX = x + 12 + menuWidth <= window.innerWidth - 8
+      ? x + 12
+      : x - menuWidth - 12;
+    const preferredY = y + 12 + menuHeight <= window.innerHeight - 8
+      ? y + 12
+      : y - menuHeight + 24;
     setCourseMenu({
-      x: Math.max(8, Math.min(x, window.innerWidth - menuWidth - 8)),
-      y: Math.max(8, Math.min(y, window.innerHeight - estimatedHeight - 8)),
+      x: Math.max(8, Math.min(preferredX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(preferredY, window.innerHeight - menuHeight - 8)),
       section,
     });
   };
@@ -128,7 +139,7 @@ export default function WeeklyCalendar({
   const handleMoreClick = (event: ReactMouseEvent<HTMLButtonElement>, section: TimetableSection) => {
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
-    openCourseMenu(rect.right - 340, rect.bottom + 8, section);
+    openCourseMenu(rect.right, rect.bottom, section);
   };
 
   useEffect(() => {
@@ -139,17 +150,20 @@ export default function WeeklyCalendar({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setCourseMenu(null);
     };
-    const closeOnViewportChange = () => setCourseMenu(null);
+    const closeOnResize = () => setCourseMenu(null);
+    const closeOnOutsideScroll = (event: Event) => {
+      if (!menuRef.current?.contains(event.target as Node)) setCourseMenu(null);
+    };
 
     document.addEventListener('mousedown', closeOnOutsideClick);
     document.addEventListener('keydown', closeOnEscape);
-    window.addEventListener('resize', closeOnViewportChange);
-    window.addEventListener('scroll', closeOnViewportChange, true);
+    window.addEventListener('resize', closeOnResize);
+    window.addEventListener('scroll', closeOnOutsideScroll, true);
     return () => {
       document.removeEventListener('mousedown', closeOnOutsideClick);
       document.removeEventListener('keydown', closeOnEscape);
-      window.removeEventListener('resize', closeOnViewportChange);
-      window.removeEventListener('scroll', closeOnViewportChange, true);
+      window.removeEventListener('resize', closeOnResize);
+      window.removeEventListener('scroll', closeOnOutsideScroll, true);
     };
   }, [courseMenu]);
 
@@ -370,13 +384,17 @@ export default function WeeklyCalendar({
           ref={menuRef}
           role="dialog"
           aria-label={`Edit ${courseMenu.section.courseCode} ${courseMenu.section.sectionCode}`}
-          className="fixed z-[200] max-h-[calc(100vh-16px)] w-[min(360px,calc(100vw-16px))] overflow-y-auto rounded-2xl border border-[#774C60] bg-[#211A2B] p-4 text-[#EACDC2] shadow-2xl shadow-black/50"
+          className="fixed z-[200] flex max-h-[min(620px,calc(100vh-32px))] w-[min(720px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-[#774C60] bg-[#211A2B] text-[#EACDC2] shadow-2xl shadow-black/50 max-sm:max-h-[82vh] max-sm:w-[calc(100vw-16px)]"
           style={{ left: courseMenu.x, top: courseMenu.y }}
         >
-          <div className="flex items-start justify-between gap-3 border-b border-[#774C60]/35 pb-3">
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[#774C60]/35 bg-[#211A2B] px-4 py-3.5">
             <div className="min-w-0">
-              <p className="font-bold text-[#F7EDE8]">{selectedCourse.courseCode}</p>
-              <p className="mt-0.5 line-clamp-2 text-xs text-[#EACDC2]/65">{selectedCourse.courseTitle}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-lg font-bold text-[#F7EDE8]">{selectedCourse.courseCode}</p>
+                <span className="rounded-full bg-[#372549] px-2 py-0.5 text-[11px] text-[#F4D7D2]">{courseMenu.section.sectionCode}</span>
+                <span className="rounded-full bg-[#372549] px-2 py-0.5 text-[11px] text-[#EACDC2]/65">{courseMenu.section.sectionType?.toLowerCase()}</span>
+              </div>
+              <p className="mt-0.5 line-clamp-2 text-sm text-[#EACDC2]/65">{selectedCourse.courseTitle}</p>
             </div>
             <button
               onClick={() => setCourseMenu(null)}
@@ -387,77 +405,99 @@ export default function WeeklyCalendar({
             </button>
           </div>
 
-          <div className="space-y-3 py-3 text-xs">
-            <div className="flex items-center gap-2 text-[#F4D7D2]">
-              <Info className="h-4 w-4" />
-              <span className="font-semibold">{courseMenu.section.sectionCode}</span>
-              <span className="rounded-full bg-[#372549] px-2 py-0.5">{courseMenu.section.sectionType?.toLowerCase()}</span>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+            <div className="grid gap-5 md:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.9fr)]">
+              <section className="space-y-4 text-xs" aria-labelledby="course-info-heading">
+                <div className="flex items-center gap-2 text-[#F4D7D2]">
+                  <Info className="h-4 w-4" />
+                  <h3 id="course-info-heading" className="font-semibold">Course and section information</h3>
+                </div>
+                <div className="grid gap-2 rounded-xl border border-[#774C60]/25 bg-[#1A1423]/35 p-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <p className="text-[10px] uppercase tracking-wide text-[#EACDC2]/40">Meeting time</p>
+                    <p className="mt-1 leading-relaxed text-[#EACDC2]/80">{courseMenu.section.dateTime || 'Time to be arranged'}</p>
+                  </div>
+                  {courseMenu.section.room && (
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-[#EACDC2]/40">Room</p>
+                      <p className="mt-1 text-[#EACDC2]/70">{courseMenu.section.room}</p>
+                    </div>
+                  )}
+                  {courseMenu.section.instructor && (
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-[#EACDC2]/40">Instructor</p>
+                      <p className="mt-1 text-[#EACDC2]/70">{courseMenu.section.instructor}</p>
+                    </div>
+                  )}
+                  {courseMenu.section.quota && (
+                    <div className="sm:col-span-2">
+                      <p className="text-[10px] uppercase tracking-wide text-[#EACDC2]/40">Enrollment</p>
+                      <p className="mt-1 text-[#EACDC2]/70">{courseMenu.section.enrolled}/{courseMenu.section.quota} enrolled · {courseMenu.section.available} available</p>
+                    </div>
+                  )}
+                </div>
+                {selectedCourse.prerequisites && (
+                  <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-3">
+                    <p className="font-semibold text-amber-200">Prerequisites</p>
+                    <p className="mt-1 leading-relaxed text-amber-100/75">{selectedCourse.prerequisites}</p>
+                  </div>
+                )}
+                {selectedCourse.description && (
+                  <div>
+                    <p className="font-semibold text-[#F4D7D2]">Description</p>
+                    <p className="mt-1.5 leading-relaxed text-[#EACDC2]/65">{selectedCourse.description}</p>
+                  </div>
+                )}
+              </section>
+
+              <section className="border-t border-[#774C60]/35 pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0" aria-labelledby="swap-section-heading">
+                <div className="mb-3 flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4 text-[#B75D69]" />
+                  <h3 id="swap-section-heading" className="text-xs font-semibold text-[#F4D7D2]">Swap {courseMenu.section.sectionType?.toLowerCase()} section</h3>
+                </div>
+                {alternativeSections.length > 0 ? (
+                  <div className="space-y-2">
+                    {alternativeSections.map(section => (
+                      <button
+                        key={section.sectionCode}
+                        onClick={() => {
+                          onSwapSection({
+                            ...section,
+                            courseCode: selectedCourse.courseCode,
+                            courseTitle: selectedCourse.courseTitle,
+                            credits: selectedCourse.credits,
+                            color: courseMenu.section.color,
+                          });
+                          setCourseMenu(null);
+                        }}
+                        className="w-full rounded-xl border border-[#774C60]/35 bg-[#2A2134] p-3 text-left transition-colors hover:border-[#B75D69] hover:bg-[#372549]"
+                      >
+                        <span className="font-semibold text-[#F7EDE8]">{section.sectionCode}</span>
+                        <span className="ml-2 text-[11px] text-emerald-300">{section.available} available</span>
+                        <span className="mt-1.5 block text-[11px] leading-relaxed text-[#EACDC2]/60">{section.dateTime || 'Time to be arranged'}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-xl bg-[#1A1423]/45 p-3 text-xs text-[#EACDC2]/50">No alternative sections are available.</p>
+                )}
+              </section>
             </div>
-            <p className="text-[#EACDC2]/75">{courseMenu.section.dateTime || 'Time to be arranged'}</p>
-            {courseMenu.section.room && <p className="text-[#EACDC2]/60">{courseMenu.section.room}</p>}
-            {courseMenu.section.instructor && <p className="text-[#EACDC2]/60">Instructor: {courseMenu.section.instructor}</p>}
-            {courseMenu.section.quota && (
-              <p className="text-[#EACDC2]/60">
-                {courseMenu.section.enrolled}/{courseMenu.section.quota} enrolled · {courseMenu.section.available} available
-              </p>
-            )}
-            {selectedCourse.prerequisites && (
-              <div className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-2.5">
-                <p className="font-semibold text-amber-200">Prerequisites</p>
-                <p className="mt-1 leading-relaxed text-amber-100/75">{selectedCourse.prerequisites}</p>
-              </div>
-            )}
-            {selectedCourse.description && (
-              <div>
-                <p className="font-semibold text-[#F4D7D2]">Description</p>
-                <p className="mt-1 max-h-28 overflow-y-auto leading-relaxed text-[#EACDC2]/65">{selectedCourse.description}</p>
-              </div>
-            )}
           </div>
 
-          <div className="border-t border-[#774C60]/35 pt-3">
-            <div className="mb-2 flex items-center gap-2">
-              <RefreshCw className="h-4 w-4 text-[#B75D69]" />
-              <p className="text-xs font-semibold text-[#F4D7D2]">Swap {courseMenu.section.sectionType?.toLowerCase()} section</p>
-            </div>
-            {alternativeSections.length > 0 ? (
-              <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
-                {alternativeSections.map(section => (
-                  <button
-                    key={section.sectionCode}
-                    onClick={() => {
-                      onSwapSection({
-                        ...section,
-                        courseCode: selectedCourse.courseCode,
-                        courseTitle: selectedCourse.courseTitle,
-                        credits: selectedCourse.credits,
-                        color: courseMenu.section.color,
-                      });
-                      setCourseMenu(null);
-                    }}
-                    className="w-full rounded-lg border border-[#774C60]/35 bg-[#2A2134] p-2.5 text-left transition-colors hover:border-[#B75D69] hover:bg-[#372549]"
-                  >
-                    <span className="font-semibold text-[#F7EDE8]">{section.sectionCode}</span>
-                    <span className="ml-2 text-[11px] text-emerald-300">{section.available} available</span>
-                    <span className="mt-1 block text-[11px] leading-relaxed text-[#EACDC2]/60">{section.dateTime || 'Time to be arranged'}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="rounded-lg bg-[#1A1423]/45 p-2.5 text-xs text-[#EACDC2]/50">No alternative sections are available.</p>
-            )}
+          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[#774C60]/35 bg-[#211A2B] px-4 py-3">
+            <p className="hidden text-xs text-[#EACDC2]/45 sm:block">Changes are saved automatically.</p>
+            <button
+              onClick={() => {
+                onRemoveSection(courseMenu.section.courseCode);
+                setCourseMenu(null);
+              }}
+              className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-red-400/25 bg-red-500/10 px-4 text-sm font-semibold text-red-200 transition-colors hover:bg-red-500/20 sm:w-auto"
+            >
+              <Trash2 className="h-4 w-4" />
+              Remove course
+            </button>
           </div>
-
-          <button
-            onClick={() => {
-              onRemoveSection(courseMenu.section.courseCode);
-              setCourseMenu(null);
-            }}
-            className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-400/25 bg-red-500/10 text-sm font-semibold text-red-200 transition-colors hover:bg-red-500/20"
-          >
-            <Trash2 className="h-4 w-4" />
-            Remove course
-          </button>
         </div>,
         document.body
       )}
