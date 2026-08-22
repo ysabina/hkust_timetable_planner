@@ -3,21 +3,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Course, TimetableSection, Conflict } from '../lib/types';
 import { mergeRefreshedSections } from '../lib/api';
+import { DEFAULT_PALETTE_ID, getSchedulePalette, normalizeScheduleColor } from '../lib/colorPalettes';
 
-const COLORS = [
-  'bg-[#F75590]', // Wild Strawberry (Pink)
-  'bg-[#FCE4D8]', // Powder Petal (Peach)
-  'bg-[#FBD87F]', // Jasmine (Yellow)
-  'bg-[#B5F8FE]', // Icy Aqua (Light Blue)
-  'bg-[#10FFCB]', // Tropical Mint (Mint)
-  'bg-[#E7B8FF]', // Lavender (Purple)
-  'bg-[#FFD4D4]', // Light Coral
-  'bg-[#C4A5E1]', // Soft Purple
-  'bg-blue-600', // Deep Blue
-  'bg-teal-600', // Teal
-  'bg-orange-600', // Orange
-  'bg-[#B75D69]', // Burgundy (kept as accent)
-];
 const STORAGE_VERSION = '1.0';
 
 function parseTime(time: string): number {
@@ -36,6 +23,7 @@ function parseTime(time: string): number {
 
 export function useTimetable() {
   const [selectedSections, setSelectedSections] = useState<TimetableSection[]>([]);
+  const [activePaletteId, setActivePaletteId] = useState(DEFAULT_PALETTE_ID);
   
   // ✅ USE REF to track color assignments permanently
   const courseColorsRef = useRef<Map<string, string>>(new Map());
@@ -51,6 +39,7 @@ export function useTimetable() {
         if (version !== STORAGE_VERSION) {
         localStorage.removeItem('timetable-sections');
         localStorage.removeItem('timetable-colors');
+        localStorage.removeItem('timetable-palette');
         localStorage.removeItem('smart-planner-courses');
         localStorage.setItem('timetable-version', STORAGE_VERSION);
         storageLoadedRef.current = true;
@@ -59,16 +48,27 @@ export function useTimetable() {
 
         const savedSections = localStorage.getItem('timetable-sections');
         const savedColors = localStorage.getItem('timetable-colors');
+        const savedPalette = localStorage.getItem('timetable-palette');
+        const restoredPaletteId = savedPalette
+          ? getSchedulePalette(savedPalette).id
+          : DEFAULT_PALETTE_ID;
       
       if (savedColors) {
-        const colorsArray = JSON.parse(savedColors);
+        const colorsArray = JSON.parse(savedColors).map(([courseCode, color]: [string, string]) => [
+          courseCode,
+          normalizeScheduleColor(color),
+        ]);
         courseColorsRef.current = new Map(colorsArray);
-        console.log('🎨 LOADED color assignments from localStorage');
-
       }
-      const restoredSections = savedSections ? JSON.parse(savedSections) : [];
+      const restoredSections = savedSections
+        ? JSON.parse(savedSections).map((section: TimetableSection) => ({
+            ...section,
+            color: courseColorsRef.current.get(section.courseCode) || normalizeScheduleColor(section.color),
+          }))
+        : [];
       restoreTimer = setTimeout(() => {
         storageLoadedRef.current = true;
+        setActivePaletteId(restoredPaletteId);
         setSelectedSections(restoredSections);
       }, 0);
     } catch (error) {
@@ -89,12 +89,11 @@ export function useTimetable() {
       // Convert Map to array for storage
       const colorsArray = Array.from(courseColorsRef.current.entries());
       localStorage.setItem('timetable-colors', JSON.stringify(colorsArray));
-      
-      console.log('💾 SAVED to localStorage');
+      localStorage.setItem('timetable-palette', activePaletteId);
     } catch (error) {
       console.error('Error saving to localStorage:', error);
     }
-  }, [selectedSections]); // Run whenever selectedSections changes
+  }, [activePaletteId, selectedSections]); // Run whenever schedule appearance changes
   
 
   const checkTimeConflicts = useCallback((sections: TimetableSection[]): Conflict[] => {
@@ -154,33 +153,22 @@ export function useTimetable() {
         );
       }
 
-      // ✅ Check if this course already has a color assigned in the ref
       let assignedColor = courseColorsRef.current.get(section.courseCode);
 
       if (assignedColor) {
-        // Reuse existing color from ref
-        console.log(`♻️ REUSING COLOR: ${section.courseCode} → ${assignedColor}`);
         return [...prev, { ...section, color: assignedColor }];
       }
 
-      // ✅ NEW COURSE - assign next color based on ref map size (not state!)
-      const colorIndex = courseColorsRef.current.size % COLORS.length;
-      assignedColor = COLORS[colorIndex];
-      
-      // ✅ SAVE to ref so it persists even after removal
+      const palette = getSchedulePalette(activePaletteId);
+      const colorIndex = courseColorsRef.current.size % palette.colors.length;
+      assignedColor = palette.colors[colorIndex];
       courseColorsRef.current.set(section.courseCode, assignedColor);
-      
-      console.log(`🎨 NEW COURSE: ${section.courseCode} → Color ${colorIndex}: ${assignedColor}`);
-      console.log(`📊 Total unique courses tracked: ${courseColorsRef.current.size}`);
-      
       return [...prev, { ...section, color: assignedColor }];
     });
-  }, []);
+  }, [activePaletteId]);
 
   const removeSection = useCallback((courseCode: string) => {
     setSelectedSections(prev => prev.filter(s => s.courseCode !== courseCode));
-    // ✅ DON'T delete from courseColorsRef - keep the color reserved!
-    console.log(`🗑️ REMOVED: ${courseCode} (color preserved in memory)`);
   }, []);
 
   const switchSection = useCallback((courseCode: string, newSection: TimetableSection) => {
@@ -198,12 +186,48 @@ export function useTimetable() {
     courseColorsRef.current.clear(); 
     localStorage.removeItem('timetable-sections');
     localStorage.removeItem('timetable-colors');
-    console.log('🧹 CLEARED ALL - color assignments reset');
   }, []);
 
   const refreshSections = useCallback((courses: Course[]) => {
     setSelectedSections(previous => mergeRefreshedSections(previous, courses));
   }, []);
+
+  const setPalette = useCallback((paletteId: string) => {
+    const palette = getSchedulePalette(paletteId);
+    const courseCodes = [...new Set([
+      ...courseColorsRef.current.keys(),
+      ...selectedSections.map(section => section.courseCode),
+    ])];
+    const recolored = new Map(courseCodes.map((courseCode, index) => [
+      courseCode,
+      palette.colors[index % palette.colors.length],
+    ]));
+    courseColorsRef.current = recolored;
+    setActivePaletteId(palette.id);
+    setSelectedSections(previous => previous.map(section => ({
+      ...section,
+      color: recolored.get(section.courseCode) || palette.colors[0],
+    })));
+  }, [selectedSections]);
+
+  const setCourseColor = useCallback((courseCode: string, color: string) => {
+    const normalizedColor = normalizeScheduleColor(color);
+    courseColorsRef.current.set(courseCode, normalizedColor);
+    setSelectedSections(previous => previous.map(section =>
+      section.courseCode === courseCode ? { ...section, color: normalizedColor } : section
+    ));
+  }, []);
+
+  const colorizeSections = useCallback((sections: TimetableSection[]) => {
+    const palette = getSchedulePalette(activePaletteId);
+    const previewColors = new Map(courseColorsRef.current);
+    return sections.map(section => {
+      if (!previewColors.has(section.courseCode)) {
+        previewColors.set(section.courseCode, palette.colors[previewColors.size % palette.colors.length]);
+      }
+      return { ...section, color: previewColors.get(section.courseCode) };
+    });
+  }, [activePaletteId]);
 
   const conflicts = checkTimeConflicts(selectedSections);
 
@@ -214,6 +238,10 @@ export function useTimetable() {
     removeSection,
     switchSection,
     refreshSections,
+    activePaletteId,
+    setPalette,
+    setCourseColor,
+    colorizeSections,
     clearAll,
   };
 }

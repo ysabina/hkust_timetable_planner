@@ -9,23 +9,19 @@ import { courseAPI, mergeRefreshedSections } from '../lib/api';
 import type { Course, TimetableSection } from '../lib/types';
 import { Calendar, Search, Sparkles, X, RefreshCw, Trash2 } from 'lucide-react';
 
-// Color palette for courses
-const COURSE_COLORS = [
-  'bg-[#F75590]', // Wild Strawberry (Pink)
-  'bg-[#FCE4D8]', // Powder Petal (Peach)
-  'bg-[#FBD87F]', // Jasmine (Yellow)
-  'bg-[#B5F8FE]', // Icy Aqua (Light Blue)
-  'bg-[#10FFCB]', // Tropical Mint (Mint)
-  'bg-[#E7B8FF]', // Lavender (Purple)
-  'bg-[#FFD4D4]', // Light Coral
-  'bg-[#C4A5E1]', // Soft Purple
-  'bg-blue-600', // Deep Blue
-  'bg-teal-600', // Teal
-  'bg-orange-600', // Orange
-];
-
 export default function Home() {
-  const { selectedSections, conflicts, addSection, removeSection, refreshSections, clearAll } = useTimetable();
+  const {
+    selectedSections,
+    conflicts,
+    addSection,
+    removeSection,
+    refreshSections,
+    activePaletteId,
+    setPalette,
+    setCourseColor,
+    colorizeSections,
+    clearAll,
+  } = useTimetable();
   
   const [focusedCourse, setFocusedCourse] = useState<{ code: string; timestamp: number } | null>(null);
   const [activeTab, setActiveTab] = useState<'search' | 'smart'>('search');
@@ -126,26 +122,8 @@ export default function Home() {
 
   const totalCredits = calculateCredits(selectedSections);
 
-  // ✅ Function to assign colors to preview sections
-  const assignColorsToSections = (sections: TimetableSection[]): TimetableSection[] => {
-    const courseColorMap: { [key: string]: string } = {};
-    let colorIndex = 0;
-    
-    return sections.map(section => {
-      if (!courseColorMap[section.courseCode]) {
-        courseColorMap[section.courseCode] = COURSE_COLORS[colorIndex % COURSE_COLORS.length];
-        colorIndex++;
-      }
-      return {
-        ...section,
-        color: courseColorMap[section.courseCode]
-      };
-    });
-  };
-
-  // ✅ Sections to display (preview with colors or actual)
   const displaySections = previewSections 
-    ? assignColorsToSections(previewSections)
+    ? colorizeSections(previewSections)
     : selectedSections;
 
   const previewCredits = previewSections
@@ -351,6 +329,9 @@ export default function Home() {
               allCourses={allCourses}
               onRemoveSection={handleRemoveCourse}
               onSwapSection={handleSelectSection}
+              activePaletteId={activePaletteId}
+              onPaletteChange={setPalette}
+              onCourseColorChange={setCourseColor}
               conflicts={conflicts}
               onCourseClick={(courseCode) => setFocusedCourse({ code: courseCode, timestamp: Date.now() })}
             />

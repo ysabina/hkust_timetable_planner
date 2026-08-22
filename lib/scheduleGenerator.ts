@@ -1,19 +1,8 @@
 import type { Course, Section, TimetableSection } from './types';
 import type { UserPreferences, ScheduleCombination } from './preferences';
 
-const COLORS = [
-  'bg-[#F75590]',
-  'bg-[#FCE4D8]',
-  'bg-[#FBD87F]',
-  'bg-[#B5F8FE]',
-  'bg-[#10FFCB]',
-  'bg-[#E7B8FF]',
-  'bg-[#FFD4D4]',
-  'bg-[#C4A5E1]',
-  'bg-blue-600',
-  'bg-teal-600',
-  'bg-orange-600',
-];
+// Preview colors are replaced by the user's active palette before rendering.
+const COLORS = ['#F75590', '#B75D69', '#FBD87F', '#B5F8FE', '#10CFA8', '#C4A5E1'];
 
 export class ScheduleGenerator {
   private static readonly MAX_RANKED_SCHEDULES = 50;

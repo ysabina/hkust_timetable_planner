@@ -2,8 +2,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Info, MoreVertical, RefreshCw, Trash2, X } from 'lucide-react';
+import { Check, Info, MoreVertical, Palette, RefreshCw, Trash2, X } from 'lucide-react';
 import type { Course, TimetableSection, Conflict } from '../lib/types';
+import { getReadableTextColor, getSchedulePalette, normalizeScheduleColor, SCHEDULE_PALETTES } from '../lib/colorPalettes';
 
 interface WeeklyCalendarProps {
   sections: TimetableSection[];
@@ -12,6 +13,9 @@ interface WeeklyCalendarProps {
   onCourseClick?: (courseCode: string) => void;
   allCourses: Course[];
   onSwapSection: (section: TimetableSection) => void;
+  activePaletteId: string;
+  onPaletteChange: (paletteId: string) => void;
+  onCourseColorChange: (courseCode: string, color: string) => void;
 }
 
 interface CourseMenuState {
@@ -47,15 +51,6 @@ function getTimeslots(section: TimetableSection) {
   return [];
 }
 
-// Helper to determine if background is light or dark for text color
-function getTextColor(bgColor: string): string {
-  // Light backgrounds that need dark text
-  const lightColors = ['bg-[#FCE4D8]', 'bg-[#FBD87F]', 'bg-[#B5F8FE]', 'bg-[#10FFCB]', 
-                       'bg-[#A7C7E7]', 'bg-[#E7B8FF]', 'bg-[#FFD4D4]', 'bg-[#C4A5E1]', 'bg-[#FFB5C5]'];
-  
-  return lightColors.includes(bgColor) ? 'text-gray-800' : 'text-white';
-}
-
 export default function WeeklyCalendar({
   sections,
   onRemoveSection,
@@ -63,9 +58,13 @@ export default function WeeklyCalendar({
   onCourseClick,
   allCourses,
   onSwapSection,
+  activePaletteId,
+  onPaletteChange,
+  onCourseColorChange,
 }: WeeklyCalendarProps) {
     const [expandedBlock, setExpandedBlock] = useState<string | null>(null);
     const [courseMenu, setCourseMenu] = useState<CourseMenuState | null>(null);
+    const [showColorControls, setShowColorControls] = useState(false);
     const menuRef = useRef<HTMLDivElement | null>(null);
     const timeToPosition = (time: string): number => {
     const match = time.match(/(\d+):(\d+)(AM|PM)/);
@@ -176,6 +175,8 @@ export default function WeeklyCalendar({
         section.sectionCode !== courseMenu.section.sectionCode
       )
     : [];
+  const activePalette = getSchedulePalette(activePaletteId);
+  const displayedCourses = [...new Map(sections.map(section => [section.courseCode, section])).values()];
 
 
 
@@ -184,10 +185,91 @@ export default function WeeklyCalendar({
       <div className="mb-5 flex items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-[#F7EDE8]">Your Timetable</h2>
-          <p className="mt-1 text-sm text-[#EACDC2]/55">Right-click a class for details, section swaps, and removal.</p>
+          <p className="mt-1 text-sm text-[#EACDC2]/55">Right-click a class for details, colors, section swaps, and removal.</p>
         </div>
-        {sections.length > 0 && <span className="rounded-full bg-[#372549] px-3 py-1 text-xs text-[#EACDC2]/75">{agendaEntries.length} meetings</span>}
+        {sections.length > 0 && (
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="hidden rounded-full bg-[#372549] px-3 py-1 text-xs text-[#EACDC2]/75 sm:inline">{agendaEntries.length} meetings</span>
+            <button
+              onClick={() => setShowColorControls(previous => !previous)}
+              aria-expanded={showColorControls}
+              aria-controls="schedule-color-controls"
+              className={`flex min-h-10 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-colors ${
+                showColorControls
+                  ? 'border-[#B75D69] bg-[#B75D69]/20 text-[#F7EDE8]'
+                  : 'border-[#774C60]/60 bg-[#2A2134] text-[#EACDC2]/75 hover:bg-[#372549]'
+              }`}
+            >
+              <Palette className="h-4 w-4" />
+              Colors
+            </button>
+          </div>
+        )}
       </div>
+
+      {showColorControls && sections.length > 0 && (
+        <section id="schedule-color-controls" className="mb-5 rounded-2xl border border-[#774C60]/35 bg-[#1A1423]/55 p-4" aria-label="Schedule color settings">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-[#F7EDE8]">Schedule colors</h3>
+              <p className="mt-1 text-xs text-[#EACDC2]/55">Choose a coordinated palette, then personalize individual courses.</p>
+            </div>
+            <button onClick={() => setShowColorControls(false)} className="rounded-lg p-2 text-[#EACDC2]/55 hover:bg-[#372549] hover:text-white" aria-label="Close schedule color settings">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {SCHEDULE_PALETTES.map(palette => (
+              <button
+                key={palette.id}
+                onClick={() => onPaletteChange(palette.id)}
+                aria-pressed={activePaletteId === palette.id}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  activePaletteId === palette.id
+                    ? 'border-[#B75D69] bg-[#372549]'
+                    : 'border-[#774C60]/25 bg-[#2A2134]/70 hover:border-[#774C60]'
+                }`}
+              >
+                <span className="flex items-center justify-between gap-2 text-xs font-semibold text-[#F7EDE8]">
+                  {palette.name}
+                  {activePaletteId === palette.id && <Check className="h-3.5 w-3.5 text-emerald-300" />}
+                </span>
+                <span className="mt-2 flex gap-1" aria-hidden="true">
+                  {palette.colors.slice(0, 6).map(color => <span key={color} className="h-3 flex-1 rounded-full" style={{ backgroundColor: color }} />)}
+                </span>
+                <span className="mt-2 block text-[10px] text-[#EACDC2]/45">{palette.description}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-4 grid gap-2 lg:grid-cols-2">
+            {displayedCourses.map(section => (
+              <div key={section.courseCode} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#774C60]/20 bg-[#2A2134]/60 px-3 py-2.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: normalizeScheduleColor(section.color) }} />
+                  <span className="truncate text-xs font-semibold text-[#F4D7D2]">{section.courseCode}</span>
+                </div>
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  {activePalette.colors.map(color => {
+                    const selected = normalizeScheduleColor(section.color) === color;
+                    return (
+                      <button
+                        key={color}
+                        onClick={() => onCourseColorChange(section.courseCode, color)}
+                        aria-label={`Set ${section.courseCode} color to ${color}`}
+                        aria-pressed={selected}
+                        className={`h-7 w-7 rounded-full border-2 transition-transform hover:scale-110 ${selected ? 'border-white ring-2 ring-[#B75D69]' : 'border-white/20'}`}
+                        style={{ backgroundColor: color }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       
       {sections.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[#B75D69]/35 bg-[#372549]/25 px-5 py-12 text-center">
@@ -210,7 +292,8 @@ export default function WeeklyCalendar({
                       <div
                         key={`${day}-${section.courseCode}-${section.sectionCode}-${slotIndex}`}
                         onContextMenu={(event) => handleContextMenu(event, section)}
-                        className={`flex items-stretch overflow-hidden rounded-xl border ${isConflicting ? 'border-red-400/70 bg-red-500/15' : 'border-[#774C60]/60 bg-[#2A2134]'}`}
+                        className={`flex items-stretch overflow-hidden rounded-xl border border-l-4 ${isConflicting ? 'border-red-400/70 bg-red-500/15' : 'border-[#774C60]/60 bg-[#2A2134]'}`}
+                        style={{ borderLeftColor: isConflicting ? '#F87171' : normalizeScheduleColor(section.color) }}
                       >
                         <button
                           onClick={() => onCourseClick?.(section.courseCode)}
@@ -284,12 +367,8 @@ export default function WeeklyCalendar({
                         const height = endPos - startPos;
                         const isConflicting = hasConflict(section);
                         
-                        // Use section.color if available, fallback to first color in palette
-                        const bgColor = isConflicting 
-                          ? 'bg-red-600/80' 
-                          : (section.color || 'bg-[#F75590]'); // Changed fallback to pink
-                        
-                        const textColor = isConflicting ? 'text-white' : getTextColor(bgColor);
+                        const backgroundColor = isConflicting ? '#DC2626' : normalizeScheduleColor(section.color);
+                        const textColor = isConflicting ? '#FFFFFF' : getReadableTextColor(backgroundColor);
 
 
                         const blockId = `${section.courseCode}-${section.sectionCode}-${day}`;
@@ -300,8 +379,8 @@ export default function WeeklyCalendar({
                             key={blockId}
                             onClick={() => handleCourseClick(section.courseCode, section.sectionCode, day)}
                             onContextMenu={(event) => handleContextMenu(event, section)}
-                            className={`absolute left-0 right-0 mx-1 ${bgColor} ${textColor} rounded-lg p-2 shadow-lg 
-                                    border-2 ${isConflicting ? 'border-red-400 animate-pulse' : 'border-white/20'} 
+                            className={`absolute left-0 right-0 mx-1 rounded-lg p-2 shadow-lg
+                                    border-2 ${isConflicting ? 'border-red-400 animate-pulse' : 'border-white/20'}
                                     overflow-hidden group cursor-pointer
                                     transition-all duration-300 ease-out
                                     ${isExpanded ? 'z-50 scale-105 shadow-2xl ring-2 ring-[#EACDC2]' : 'hover:z-10 hover:shadow-xl hover:scale-102'}`}
@@ -309,6 +388,8 @@ export default function WeeklyCalendar({
                             top: `${(startPos / 840) * 100}%`,
                             height: `${(height / 840) * 100}%`,
                             minHeight: isExpanded ? '120px' : '40px',
+                            backgroundColor,
+                            color: textColor,
                             }}
                         >
                             <button
@@ -435,6 +516,30 @@ export default function WeeklyCalendar({
                       <p className="mt-1 text-[#EACDC2]/70">{courseMenu.section.enrolled}/{courseMenu.section.quota} enrolled · {courseMenu.section.available} available</p>
                     </div>
                   )}
+                </div>
+                <div className="rounded-xl border border-[#774C60]/25 bg-[#1A1423]/35 p-3">
+                  <p className="text-[10px] uppercase tracking-wide text-[#EACDC2]/40">Course color</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {activePalette.colors.map(color => {
+                      const selected = normalizeScheduleColor(courseMenu.section.color) === color;
+                      return (
+                        <button
+                          key={color}
+                          onClick={() => {
+                            onCourseColorChange(courseMenu.section.courseCode, color);
+                            setCourseMenu(previous => previous ? {
+                              ...previous,
+                              section: { ...previous.section, color },
+                            } : previous);
+                          }}
+                          aria-label={`Set ${courseMenu.section.courseCode} color to ${color}`}
+                          aria-pressed={selected}
+                          className={`h-8 w-8 rounded-full border-2 transition-transform hover:scale-110 ${selected ? 'border-white ring-2 ring-[#B75D69]' : 'border-white/20'}`}
+                          style={{ backgroundColor: color }}
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
                 {selectedCourse.prerequisites && (
                   <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-3">
