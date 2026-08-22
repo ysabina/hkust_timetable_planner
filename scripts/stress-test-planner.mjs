@@ -15,6 +15,23 @@ const preferences = {
   weights: { noMorning: 5, noEvening: 3, noFriday: 7, daysOff: 8, minimizeGaps: 6, compact: 4 },
 };
 
+function makeSection(sectionCode, day, startTime = '11:00AM', endTime = '11:50AM') {
+  return {
+    sectionCode,
+    dateTime: `${day.slice(0, 2)} ${startTime} - ${endTime}`,
+    room: '', instructor: '', taIaGta: '', quota: '30', enrolled: '0', available: '30', wait: '0', remarks: '',
+    sectionType: 'LECTURE',
+    parsedTime: {
+      days: [day], startTime, endTime,
+      timeslots: [{ days: [day], startTime, endTime }],
+    },
+  };
+}
+
+function makeCourse(courseCode, sections) {
+  return { courseCode, courseTitle: courseCode, department: 'TEST', credits: 3, sections };
+}
+
 function timeToMinutes(time) {
   const match = time.match(/^(\d{1,2}):(\d{2})(AM|PM)$/);
   if (!match) return Number.NaN;
@@ -90,6 +107,55 @@ const fridayConflict = {
 };
 assert.equal(worstCaseGenerator.sectionsOverlap(fina.sections[0], fridayConflict), true);
 
+// Exact Cartesian product: 2 × 3 × 4 course options must produce 24 schedules.
+const cartesianCourses = [
+  makeCourse('TEST 1001', Array.from({ length: 2 }, (_, index) => makeSection(`L${index + 1}`, 'Monday'))),
+  makeCourse('TEST 1002', Array.from({ length: 3 }, (_, index) => makeSection(`L${index + 1}`, 'Tuesday'))),
+  makeCourse('TEST 1003', Array.from({ length: 4 }, (_, index) => makeSection(`L${index + 1}`, 'Wednesday'))),
+];
+const cartesianGenerator = new ScheduleGenerator();
+const cartesianSchedules = cartesianGenerator.generateCombinations(cartesianCourses, preferences);
+assert.equal(cartesianGenerator.lastRunStats.totalCartesianProducts, '24');
+assert.equal(cartesianGenerator.lastRunStats.candidateSchedules, 24);
+assert.equal(cartesianSchedules.length, 24);
+assert.equal(cartesianGenerator.lastRunStats.truncated, false);
+
+// A single overlapping pair must be removed from a 2 × 2 Cartesian product.
+const conflictGenerator = new ScheduleGenerator();
+const conflictSchedules = conflictGenerator.generateCombinations([
+  makeCourse('TEST 2001', [makeSection('L1', 'Monday', '09:00AM', '09:50AM'), makeSection('L2', 'Monday', '10:00AM', '10:50AM')]),
+  makeCourse('TEST 2002', [makeSection('L1', 'Monday', '09:00AM', '09:50AM'), makeSection('L2', 'Monday', '11:00AM', '11:50AM')]),
+], preferences);
+assert.equal(conflictGenerator.lastRunStats.totalCartesianProducts, '4');
+assert.equal(conflictGenerator.lastRunStats.candidateSchedules, 3);
+assert.equal(conflictSchedules.length, 3);
+
+// Regression: the highest-ranked option can occur after the first 2,000 products.
+const lateBestCourses = ['Monday', 'Tuesday', 'Wednesday'].map((day, courseIndex) =>
+  makeCourse(`TEST 30${courseIndex + 1}0`, Array.from({ length: 13 }, (_, sectionIndex) =>
+    makeSection(
+      `L${sectionIndex + 1}`,
+      day,
+      sectionIndex === 12 ? '11:00AM' : '08:00AM',
+      sectionIndex === 12 ? '11:50AM' : '08:50AM'
+    )
+  ))
+);
+const lateBestGenerator = new ScheduleGenerator();
+const lateBestSchedules = lateBestGenerator.generateCombinations(lateBestCourses, {
+  weights: { noMorning: 10, noEvening: 0, noFriday: 0, daysOff: 0, minimizeGaps: 0, compact: 0 },
+});
+assert.equal(lateBestGenerator.lastRunStats.totalCartesianProducts, '2197');
+assert.equal(lateBestGenerator.lastRunStats.candidateSchedules, 2197);
+assert.deepEqual(lateBestSchedules[0].sections.map(section => section.sectionCode), ['L13', 'L13', 'L13']);
+assert.equal(lateBestSchedules[0].score, 100);
+
+const zeroWeightGenerator = new ScheduleGenerator();
+const zeroWeightSchedules = zeroWeightGenerator.generateCombinations([cartesianCourses[0]], {
+  weights: { noMorning: 0, noEvening: 0, noFriday: 0, daysOff: 0, minimizeGaps: 0, compact: 0 },
+});
+assert.ok(zeroWeightSchedules.every(schedule => schedule.score === 50));
+
 console.log(JSON.stringify({
   coursesTested: courses.length,
   multiMeetingSections,
@@ -102,4 +168,10 @@ console.log(JSON.stringify({
     ...worstCaseGenerator.lastRunStats,
   },
   mondayFridayRegression: 'passed',
+  cartesianRegression: {
+    exactProduct: cartesianGenerator.lastRunStats.totalCartesianProducts,
+    validSchedules: cartesianGenerator.lastRunStats.candidateSchedules,
+    conflictFilteredSchedules: conflictGenerator.lastRunStats.candidateSchedules,
+    lateBestSchedule: lateBestSchedules[0].sections.map(section => section.sectionCode),
+  },
 }, null, 2));

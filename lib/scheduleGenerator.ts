@@ -16,12 +16,15 @@ const COLORS = [
 ];
 
 export class ScheduleGenerator {
-  private static readonly MAX_CANDIDATE_SCHEDULES = 2000;
+  private static readonly MAX_RANKED_SCHEDULES = 50;
   private static readonly MAX_SEARCH_NODES = 250000;
 
   public lastRunStats = {
     exploredNodes: 0,
     candidateSchedules: 0,
+    returnedSchedules: 0,
+    totalCartesianProducts: '0',
+    courseOptionCounts: [] as Array<{ courseCode: string; options: number }>,
     truncated: false,
   };
   
@@ -111,15 +114,32 @@ export class ScheduleGenerator {
       }))
       .sort((a, b) => a.options.length - b.options.length);
 
-    if (courseOptions.some(course => course.options.length === 0)) return [];
-
-    const validCombinations = this.findValidCombinations(courseOptions);
-    const scoredCombinations = validCombinations.map(combo => ({
-      sections: combo,
-      ...this.scoreSchedule(combo, preferences)
+    const totalCartesianProducts = courseOptions
+      .reduce((product, course) => product * BigInt(course.options.length), BigInt(1))
+      .toString();
+    const courseOptionCounts = courseOptions.map(course => ({
+      courseCode: course.courseCode,
+      options: course.options.length,
     }));
 
-    return scoredCombinations.sort((a, b) => b.score - a.score);
+    if (courseOptions.some(course => course.options.length === 0)) {
+      this.lastRunStats = {
+        exploredNodes: 0,
+        candidateSchedules: 0,
+        returnedSchedules: 0,
+        totalCartesianProducts,
+        courseOptionCounts,
+        truncated: false,
+      };
+      return [];
+    }
+
+    return this.findBestCombinations(
+      courseOptions,
+      preferences,
+      totalCartesianProducts,
+      courseOptionCounts
+    );
   }
 
   private buildCourseOptions(course: {
@@ -157,44 +177,63 @@ export class ScheduleGenerator {
     return options;
   }
 
-  private findValidCombinations(courseOptions: Array<{
+  private findBestCombinations(courseOptions: Array<{
     courseCode: string;
     options: TimetableSection[][];
-  }>): TimetableSection[][] {
-    const combinations: TimetableSection[][] = [];
+  }>, preferences: UserPreferences, totalCartesianProducts: string,
+  courseOptionCounts: Array<{ courseCode: string; options: number }>): ScheduleCombination[] {
+    const bestCombinations: ScheduleCombination[] = [];
     let exploredNodes = 0;
+    let validSchedules = 0;
+    let truncated = false;
+
+    const rankCombination = (sections: TimetableSection[]) => {
+      const combination: ScheduleCombination = {
+        sections,
+        ...this.scoreSchedule(sections, preferences),
+      };
+      bestCombinations.push(combination);
+      bestCombinations.sort((a, b) => b.score - a.score);
+      if (bestCombinations.length > ScheduleGenerator.MAX_RANKED_SCHEDULES) {
+        bestCombinations.pop();
+      }
+    };
 
     const visit = (courseIndex: number, selected: TimetableSection[]) => {
-      if (
-        combinations.length >= ScheduleGenerator.MAX_CANDIDATE_SCHEDULES ||
-        exploredNodes >= ScheduleGenerator.MAX_SEARCH_NODES
-      ) return;
+      if (exploredNodes >= ScheduleGenerator.MAX_SEARCH_NODES) {
+        truncated = true;
+        return;
+      }
 
       if (courseIndex === courseOptions.length) {
-        combinations.push(selected);
+        validSchedules += 1;
+        rankCombination(selected);
         return;
       }
 
       for (const option of courseOptions[courseIndex].options) {
+        if (exploredNodes >= ScheduleGenerator.MAX_SEARCH_NODES) {
+          truncated = true;
+          break;
+        }
         exploredNodes += 1;
-        if (exploredNodes >= ScheduleGenerator.MAX_SEARCH_NODES) break;
         const conflicts = option.some(section =>
           selected.some(existing => this.sectionsOverlap(section, existing))
         );
         if (!conflicts) visit(courseIndex + 1, [...selected, ...option]);
-        if (combinations.length >= ScheduleGenerator.MAX_CANDIDATE_SCHEDULES) break;
       }
     };
 
     visit(0, []);
     this.lastRunStats = {
       exploredNodes,
-      candidateSchedules: combinations.length,
-      truncated:
-        combinations.length >= ScheduleGenerator.MAX_CANDIDATE_SCHEDULES ||
-        exploredNodes >= ScheduleGenerator.MAX_SEARCH_NODES,
+      candidateSchedules: validSchedules,
+      returnedSchedules: bestCombinations.length,
+      totalCartesianProducts,
+      courseOptionCounts,
+      truncated,
     };
-    return combinations;
+    return bestCombinations;
   }
 
   private hasTimeConflict(sections: TimetableSection[]): boolean {
@@ -251,13 +290,17 @@ export class ScheduleGenerator {
   breakdown.fridayPenalty = this.calculateFridayPenalty(sections);
   breakdown.daysOffBonus = this.calculateDaysOffBonus(sections);
   breakdown.gapPenalty = this.calculateGapPenalty(sections);
+  breakdown.compactBonus = Math.max(0, 10 - Math.min(10, breakdown.gapPenalty));
 
   // Normalize each component to 0-10 scale based on weights
   const totalWeight = preferences.weights.noMorning + 
                      preferences.weights.noEvening + 
                      preferences.weights.noFriday + 
                      preferences.weights.daysOff + 
-                     preferences.weights.minimizeGaps;
+                     preferences.weights.minimizeGaps +
+                     preferences.weights.compact;
+
+  if (totalWeight === 0) return { score: 50, breakdown };
 
   // Calculate weighted contributions (normalized to percentage of total weight)
   const morningScore = (10 - Math.min(10, breakdown.morningPenalty)) * (preferences.weights.noMorning / totalWeight);
@@ -265,9 +308,10 @@ export class ScheduleGenerator {
   const fridayScore = (10 - Math.min(10, breakdown.fridayPenalty)) * (preferences.weights.noFriday / totalWeight);
   const daysOffScore = Math.min(10, breakdown.daysOffBonus) * (preferences.weights.daysOff / totalWeight);
   const gapScore = (10 - Math.min(10, breakdown.gapPenalty)) * (preferences.weights.minimizeGaps / totalWeight);
+  const compactScore = breakdown.compactBonus * (preferences.weights.compact / totalWeight);
 
   // Sum all components and scale to 0-100
-  const score = Math.round((morningScore + eveningScore + fridayScore + daysOffScore + gapScore) * 10);
+  const score = Math.round((morningScore + eveningScore + fridayScore + daysOffScore + gapScore + compactScore) * 10);
 
   return { score: Math.min(100, Math.max(0, score)), breakdown };
 }

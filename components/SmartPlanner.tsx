@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Sparkles, Sliders, Loader2, X, Search } from 'lucide-react';
+import { AlertCircle, Check, CheckCircle2, Eye, GitBranch, Loader2, Search, Sliders, Sparkles, X } from 'lucide-react';
 import type { Course, TimetableSection } from '../lib/types';
 import type { UserPreferences, ScheduleCombination } from '../lib/preferences';
 import { ScheduleGenerator } from '../lib/scheduleGenerator';
@@ -29,6 +29,17 @@ const TAG_COLORS = [
   'bg-cyan-500',
 ];
 
+type PlannerRunStats = InstanceType<typeof ScheduleGenerator>['lastRunStats'];
+type PlannerNotice = { type: 'info' | 'success' | 'warning' | 'error'; message: string };
+
+const formatCount = (value: string | number) => {
+  try {
+    return BigInt(value).toLocaleString();
+  } catch {
+    return String(value);
+  }
+};
+
 export default function SmartPlanner({ 
   allCourses, 
   onPreviewSchedule, 
@@ -51,6 +62,15 @@ export default function SmartPlanner({
   });
   const [results, setResults] = useState<ScheduleCombination[]>([]);
   const [loading, setLoading] = useState(false);
+  const [runStats, setRunStats] = useState<PlannerRunStats | null>(null);
+  const [notice, setNotice] = useState<PlannerNotice | null>(null);
+
+  const clearGeneratedResults = () => {
+    setResults([]);
+    setRunStats(null);
+    setNotice(null);
+    if (isPreviewMode) onClearPreview();
+  };
 
   // Filter courses based on search (works with or without space)
   const normalizeQuery = (query: string) => {
@@ -78,20 +98,25 @@ export default function SmartPlanner({
     : [];
 
   const addCourse = (courseCode: string) => {
+    if (selectedCourses.length >= 6) {
+      setNotice({ type: 'warning', message: 'Remove a course before adding another. Planning supports up to 6 courses per run.' });
+      return;
+    }
     if (!selectedCourses.includes(courseCode)) {
       onSelectedCoursesChange([...selectedCourses, courseCode]);
       setSearchQuery('');
+      clearGeneratedResults();
     }
   };
 
   const removeCourse = (courseCode: string) => {
     onSelectedCoursesChange(selectedCourses.filter(c => c !== courseCode));
-    setResults([]);
+    clearGeneratedResults();
   };
 
   const clearSelectedCourses = () => {
     onSelectedCoursesChange([]);
-    setResults([]);
+    clearGeneratedResults();
   };
 
   const getTagColor = (index: number) => {
@@ -100,36 +125,72 @@ export default function SmartPlanner({
 
   const generateSchedules = () => {
     if (selectedCourses.length === 0) {
-      alert('Please select at least one course');
+      setNotice({ type: 'warning', message: 'Add at least one course before generating schedules.' });
       return;
     }
 
     if (selectedCourses.length > 6) {
-      alert('Please select 6 or fewer courses for optimal performance');
+      setNotice({ type: 'warning', message: 'Select 6 or fewer courses so the planner can search safely.' });
       return;
     }
 
     setLoading(true);
+    setNotice({ type: 'info', message: 'Building section combinations and removing time conflicts…' });
+    setResults([]);
+    setRunStats(null);
+    if (isPreviewMode) onClearPreview();
     
     setTimeout(() => {
       try {
         const courses = allCourses.filter(c => selectedCourses.includes(c.courseCode));
+        if (courses.length !== selectedCourses.length) {
+          throw new Error('One or more selected courses are no longer available. Remove them and try again.');
+        }
         const generator = new ScheduleGenerator();
         const combinations = generator.generateCombinations(courses, preferences);
-        
+        setRunStats(generator.lastRunStats);
+
         if (combinations.length === 0) {
-          alert('No valid schedules found. Try adjusting your preferences or course selection.');
+          setNotice({
+            type: 'warning',
+            message: generator.lastRunStats.courseOptionCounts.some(course => course.options === 0)
+              ? 'At least one selected course has no usable lecture, lab, or tutorial combinations.'
+              : 'No conflict-free schedules were found. Try removing a course or choosing different courses.',
+          });
+        } else if (generator.lastRunStats.truncated) {
+          setNotice({
+            type: 'warning',
+            message: `The search reached its safety limit after ${formatCount(generator.lastRunStats.exploredNodes)} branches. These are the best schedules found in that search.`,
+          });
+        } else {
+          setNotice({
+            type: 'success',
+            message: `Finished the complete Cartesian search and ranked ${formatCount(generator.lastRunStats.candidateSchedules)} conflict-free schedules.`,
+          });
         }
-        
+
         setResults(combinations.slice(0, 3));
       } catch (error) {
         console.error('Error generating schedules:', error);
-        alert('Error generating schedules. Please try with fewer courses.');
+        setNotice({
+          type: 'error',
+          message: error instanceof Error ? error.message : 'The planner could not generate schedules. Try fewer courses.',
+        });
       } finally {
         setLoading(false);
       }
     }, 100);
   };
+
+  const updateWeight = (key: keyof UserPreferences['weights'], value: number) => {
+    setPreferences(previous => ({
+      ...previous,
+      weights: { ...previous.weights, [key]: value },
+    }));
+    clearGeneratedResults();
+  };
+
+  const activeStep = results.length > 0 ? 3 : selectedCourses.length > 0 ? 2 : 1;
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-[#4A3856] bg-[#2A2134] shadow-xl">
@@ -140,9 +201,24 @@ export default function SmartPlanner({
         </h2>
 
         <ol className="mb-5 grid grid-cols-3 gap-2 text-center text-[11px] font-semibold text-[#EACDC2]/65" aria-label="Planning steps">
-          <li className="rounded-lg bg-[#B75D69]/20 px-2 py-2 text-[#F4D7D2]">1. Courses</li>
-          <li className="rounded-lg bg-[#372549] px-2 py-2">2. Preferences</li>
-          <li className="rounded-lg bg-[#372549] px-2 py-2">3. Compare</li>
+          {['Courses', 'Preferences', 'Compare'].map((label, index) => {
+            const step = index + 1;
+            return (
+              <li
+                key={label}
+                aria-current={activeStep === step ? 'step' : undefined}
+                className={`rounded-lg border px-2 py-2 transition-colors ${
+                  activeStep === step
+                    ? 'border-[#B75D69]/60 bg-[#B75D69]/25 text-[#F7EDE8]'
+                    : step < activeStep
+                      ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'
+                      : 'border-transparent bg-[#372549]'
+                }`}
+              >
+                {step < activeStep ? <Check className="mr-1 inline h-3 w-3" /> : `${step}. `}{label}
+              </li>
+            );
+          })}
         </ol>
 
         {/* Course Selection */}
@@ -268,10 +344,7 @@ export default function SmartPlanner({
                 min="0"
                 max="10"
                 value={preferences.weights.noMorning}
-                onChange={(e) => setPreferences(prev => ({
-                  ...prev,
-                  weights: { ...prev.weights, noMorning: parseInt(e.target.value) }
-                }))}
+                onInput={(e) => updateWeight('noMorning', parseInt(e.currentTarget.value))}
                 className="w-full h-2 bg-[#1A1423]/40 rounded-lg appearance-none cursor-pointer accent-[#B75D69]"
               />
             </div>
@@ -287,10 +360,7 @@ export default function SmartPlanner({
                 min="0"
                 max="10"
                 value={preferences.weights.noEvening}
-                onChange={(e) => setPreferences(prev => ({
-                  ...prev,
-                  weights: { ...prev.weights, noEvening: parseInt(e.target.value) }
-                }))}
+                onInput={(e) => updateWeight('noEvening', parseInt(e.currentTarget.value))}
                 className="w-full h-2 bg-[#1A1423]/40 rounded-lg appearance-none cursor-pointer accent-[#B75D69]"
               />
             </div>
@@ -306,10 +376,7 @@ export default function SmartPlanner({
                 min="0"
                 max="10"
                 value={preferences.weights.noFriday}
-                onChange={(e) => setPreferences(prev => ({
-                  ...prev,
-                  weights: { ...prev.weights, noFriday: parseInt(e.target.value) }
-                }))}
+                onInput={(e) => updateWeight('noFriday', parseInt(e.currentTarget.value))}
                 className="w-full h-2 bg-[#1A1423]/40 rounded-lg appearance-none cursor-pointer accent-[#B75D69]"
               />
             </div>
@@ -325,10 +392,7 @@ export default function SmartPlanner({
                 min="0"
                 max="10"
                 value={preferences.weights.daysOff}
-                onChange={(e) => setPreferences(prev => ({
-                  ...prev,
-                  weights: { ...prev.weights, daysOff: parseInt(e.target.value) }
-                }))}
+                onInput={(e) => updateWeight('daysOff', parseInt(e.currentTarget.value))}
                 className="w-full h-2 bg-[#1A1423]/40 rounded-lg appearance-none cursor-pointer accent-[#B75D69]"
               />
             </div>
@@ -344,10 +408,7 @@ export default function SmartPlanner({
                 min="0"
                 max="10"
                 value={preferences.weights.minimizeGaps}
-                onChange={(e) => setPreferences(prev => ({
-                  ...prev,
-                  weights: { ...prev.weights, minimizeGaps: parseInt(e.target.value) }
-                }))}
+                onInput={(e) => updateWeight('minimizeGaps', parseInt(e.currentTarget.value))}
                 className="w-full h-2 bg-[#1A1423]/40 rounded-lg appearance-none cursor-pointer accent-[#B75D69]"
               />
             </div>
@@ -363,10 +424,7 @@ export default function SmartPlanner({
                 min="0"
                 max="10"
                 value={preferences.weights.compact}
-                onChange={(e) => setPreferences(prev => ({
-                  ...prev,
-                  weights: { ...prev.weights, compact: parseInt(e.target.value) }
-                }))}
+                onInput={(e) => updateWeight('compact', parseInt(e.currentTarget.value))}
                 className="w-full h-2 bg-[#1A1423]/40 rounded-lg appearance-none cursor-pointer accent-[#B75D69]"
               />
             </div>
@@ -376,7 +434,7 @@ export default function SmartPlanner({
         <button
           onClick={generateSchedules}
           disabled={loading || selectedCourses.length === 0}
-          className="w-full bg-[#B75D69] hover:bg-[#774C60] text-white py-2.5 rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-4"
+          className="mb-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#B75D69] py-2.5 font-semibold text-white transition-colors hover:bg-[#774C60] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? (
             <>
@@ -384,9 +442,62 @@ export default function SmartPlanner({
               Generating...
             </>
           ) : (
-            'Generate Smart Schedules'
+            results.length > 0 ? 'Recalculate Schedules' : 'Generate Smart Schedules'
           )}
         </button>
+
+        {notice && (
+          <div
+            role="status"
+            aria-live="polite"
+            className={`mb-3 flex items-start gap-2 rounded-xl border p-3 text-xs leading-relaxed ${
+              notice.type === 'success'
+                ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100'
+                : notice.type === 'warning'
+                  ? 'border-amber-400/25 bg-amber-400/10 text-amber-100'
+                  : notice.type === 'error'
+                    ? 'border-red-400/25 bg-red-400/10 text-red-100'
+                    : 'border-[#B75D69]/25 bg-[#B75D69]/10 text-[#F4D7D2]'
+            }`}
+          >
+            {notice.type === 'success'
+              ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              : notice.type === 'info' && loading
+                ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+                : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
+            <span>{notice.message}</span>
+          </div>
+        )}
+
+        {runStats && (
+          <section className="mb-4 rounded-xl border border-[#774C60]/30 bg-[#1A1423]/45 p-3" aria-label="Planning search summary">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-[#F4D7D2]">
+              <GitBranch className="h-4 w-4 text-[#B75D69]" />
+              Combination audit
+            </div>
+            <dl className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-lg bg-[#2A2134] px-2 py-2">
+                <dt className="text-[10px] uppercase tracking-wide text-[#EACDC2]/45">Cartesian</dt>
+                <dd className="mt-1 truncate text-xs font-bold text-[#F7EDE8]" title={formatCount(runStats.totalCartesianProducts)}>{formatCount(runStats.totalCartesianProducts)}</dd>
+              </div>
+              <div className="rounded-lg bg-[#2A2134] px-2 py-2">
+                <dt className="text-[10px] uppercase tracking-wide text-[#EACDC2]/45">Valid found</dt>
+                <dd className="mt-1 text-xs font-bold text-[#F7EDE8]">{formatCount(runStats.candidateSchedules)}</dd>
+              </div>
+              <div className="rounded-lg bg-[#2A2134] px-2 py-2">
+                <dt className="text-[10px] uppercase tracking-wide text-[#EACDC2]/45">Branches</dt>
+                <dd className="mt-1 text-xs font-bold text-[#F7EDE8]">{formatCount(runStats.exploredNodes)}</dd>
+              </div>
+            </dl>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {runStats.courseOptionCounts.map(course => (
+                <span key={course.courseCode} className="rounded-full bg-[#372549] px-2 py-1 text-[10px] text-[#EACDC2]/70">
+                  {course.courseCode}: {formatCount(course.options)} options
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Results */}
         {results.length > 0 && (
@@ -405,46 +516,56 @@ export default function SmartPlanner({
               )}
             </div>
             
-            <div className="space-y-2">
-              {results.map((result, idx) => (
-                <div 
-                  key={idx} 
-                  className={`bg-[#1A1423]/40 rounded-lg p-3 border transition-all ${
+            <div className="space-y-3">
+              {results.map((result, idx) => {
+                const sectionSummary = result.sections
+                  .map(section => `${section.courseCode} ${section.sectionCode}`)
+                  .join(' · ');
+                return (
+                <article
+                  key={sectionSummary}
+                  className={`rounded-xl border bg-[#1A1423]/40 p-3 transition-all ${
                     isPreviewMode ? 'border-yellow-400/50' : 'border-[#B75D69]/20'
                   }`}
                 >
-                  <div className="flex justify-between items-center mb-2">
+                  <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="font-bold text-[#EACDC2] text-sm">
                       Schedule {idx + 1}
                     </span>
-                    <span className="text-[#B75D69] font-semibold text-sm">
-                      Score: {result.score.toFixed(1)}/100
+                    <span className="rounded-full bg-[#B75D69]/15 px-2.5 py-1 text-sm font-bold text-[#F4D7D2]">
+                      {result.score}/100
                     </span>
                   </div>
-                  
-                  <div className="text-xs text-[#EACDC2]/70 space-y-1 mb-3">
-                    <div>📅 Days off: {(result.breakdown.daysOffBonus / 5).toFixed(0)}</div>
-                    <div>🌅 Morning classes: {(result.breakdown.morningPenalty / 2).toFixed(0)}</div>
-                    <div>🌙 Evening classes: {(result.breakdown.eveningPenalty / 2).toFixed(0)}</div>
-                    <div>📆 Friday classes: {(result.breakdown.fridayPenalty / 3).toFixed(0)}</div>
+
+                  <p className="mb-3 line-clamp-2 text-[11px] leading-relaxed text-[#EACDC2]/55" title={sectionSummary}>
+                    {sectionSummary}
+                  </p>
+
+                  <div className="mb-3 grid grid-cols-2 gap-1.5 text-[11px] text-[#EACDC2]/70">
+                    <div className="rounded-md bg-[#2A2134] px-2 py-1.5">{(result.breakdown.daysOffBonus / 5).toFixed(0)} days off</div>
+                    <div className="rounded-md bg-[#2A2134] px-2 py-1.5">{(result.breakdown.morningPenalty / 2).toFixed(0)} morning classes</div>
+                    <div className="rounded-md bg-[#2A2134] px-2 py-1.5">{(result.breakdown.eveningPenalty / 2).toFixed(0)} evening classes</div>
+                    <div className="rounded-md bg-[#2A2134] px-2 py-1.5">{(result.breakdown.fridayPenalty / 3).toFixed(0)} Friday classes</div>
                   </div>
-                  
+
                   <div className="flex gap-2">
                     <button
                       onClick={() => onPreviewSchedule(result.sections)}
-                      className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-2 rounded-md text-xs font-medium transition-colors"
+                      className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-yellow-400/25 bg-yellow-500/10 py-2 text-xs font-semibold text-yellow-100 transition-colors hover:bg-yellow-500/20"
                     >
-                      👁️ Preview
+                      <Eye className="h-3.5 w-3.5" />
+                      Preview
                     </button>
                     <button
                       onClick={() => onApplySchedule(result.sections)}
-                      className="flex-1 bg-[#B75D69] hover:bg-[#774C60] text-white py-2 rounded-md text-xs font-medium transition-colors"
+                      className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#B75D69] py-2 text-xs font-semibold text-white transition-colors hover:bg-[#774C60]"
                     >
-                      ✓ Apply
+                      <Check className="h-3.5 w-3.5" />
+                      Apply
                     </button>
                   </div>
-                </div>
-              ))}
+                </article>
+              );})}
             </div>
           </div>
         )}
